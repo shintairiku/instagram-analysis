@@ -1,131 +1,131 @@
-name: New Posts Detection & Collection
+# name: New Posts Detection & Collection
 
-permissions:
-  contents: write
+# permissions:
+#   contents: write
 
-on:
-  schedule:
-    # 1日2回実行: 06:00, 18:00 JST (UTC -9h)
-    - cron: '0 21 * * *'  # 06:00 JST
-    - cron: '0 9 * * *'   # 18:00 JST
-  workflow_dispatch:
-    inputs:
-      target_accounts:
-        description: '対象アカウント (カンマ区切り, 空の場合は全アカウント)'
-        required: false
-        type: string
-      check_hours_back:
-        description: '遡及時間 (時間, デフォルト: 8)'
-        required: false
-        type: number
-        default: 8
-      force_reprocess:
-        description: '既存投稿の再処理を強制実行'
-        required: false
-        type: boolean
-        default: false
+# on:
+#   schedule:
+#     # 1日2回実行: 06:00, 18:00 JST (UTC -9h)
+#     - cron: '0 21 * * *'  # 06:00 JST
+#     - cron: '0 9 * * *'   # 18:00 JST
+#   workflow_dispatch:
+#     inputs:
+#       target_accounts:
+#         description: '対象アカウント (カンマ区切り, 空の場合は全アカウント)'
+#         required: false
+#         type: string
+#       check_hours_back:
+#         description: '遡及時間 (時間, デフォルト: 8)'
+#         required: false
+#         type: number
+#         default: 8
+#       force_reprocess:
+#         description: '既存投稿の再処理を強制実行'
+#         required: false
+#         type: boolean
+#         default: false
 
-jobs:
-  detect-new-posts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+# jobs:
+#   detect-new-posts:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 30
     
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#     env:
+#       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+#       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+#     steps:
+#     - name: Checkout repository
+#       uses: actions/checkout@v4
+#       with:
+#         token: ${{ secrets.GITHUB_TOKEN }}
       
-    - name: Setup Python 3.11
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-        cache: 'pip'
+#     - name: Setup Python 3.11
+#       uses: actions/setup-python@v4
+#       with:
+#         python-version: '3.11'
+#         cache: 'pip'
         
-    - name: Install dependencies
-      run: |
-        pip install --upgrade pip
-        pip install -r backend/requirements.txt
+#     - name: Install dependencies
+#       run: |
+#         pip install --upgrade pip
+#         pip install -r backend/requirements.txt
         
-    - name: Create execution state directory
-      run: |
-        mkdir -p backend/data/execution_state
+#     - name: Create execution state directory
+#       run: |
+#         mkdir -p backend/data/execution_state
         
-    - name: Load previous execution state
-      id: load-state
-      run: |
-        cd backend
-        if [ -f "data/execution_state/new_posts_last_execution.json" ]; then
-          echo "Previous execution state found"
-          cat data/execution_state/new_posts_last_execution.json
-        else
-          echo "No previous execution state found - first run"
-        fi
+#     - name: Load previous execution state
+#       id: load-state
+#       run: |
+#         cd backend
+#         if [ -f "data/execution_state/new_posts_last_execution.json" ]; then
+#           echo "Previous execution state found"
+#           cat data/execution_state/new_posts_last_execution.json
+#         else
+#           echo "No previous execution state found - first run"
+#         fi
         
-    - name: Run new posts detection
-      run: |
-        cd backend
-        python scripts/github_actions/new_posts_collector.py \
-          --target-accounts "${{ github.event.inputs.target_accounts }}" \
-          --check-hours-back ${{ github.event.inputs.check_hours_back || 8 }} \
-          ${{ github.event.inputs.force_reprocess == 'true' && '--force-reprocess' || '' }} \
-          --notify-new-posts \
-          --log-level INFO
+#     - name: Run new posts detection
+#       run: |
+#         cd backend
+#         python scripts/github_actions/new_posts_collector.py \
+#           --target-accounts "${{ github.event.inputs.target_accounts }}" \
+#           --check-hours-back ${{ github.event.inputs.check_hours_back || 8 }} \
+#           ${{ github.event.inputs.force_reprocess == 'true' && '--force-reprocess' || '' }} \
+#           --notify-new-posts \
+#           --log-level INFO
           
-    - name: Save execution state
-      if: always()
-      run: |
-        cd backend
-        # 実行状態の保存（成功・失敗問わず）
-        python -c "
-        import json
-        from datetime import datetime, timezone
+#     - name: Save execution state
+#       if: always()
+#       run: |
+#         cd backend
+#         # 実行状態の保存（成功・失敗問わず）
+#         python -c "
+#         import json
+#         from datetime import datetime, timezone
         
-        state = {
-            'last_execution_time': datetime.now(timezone.utc).isoformat(),
-            'execution_id': '${{ github.run_id }}',
-            'workflow_run': '${{ github.run_number }}',
-            'trigger': '${{ github.event_name }}'
-        }
+#         state = {
+#             'last_execution_time': datetime.now(timezone.utc).isoformat(),
+#             'execution_id': '${{ github.run_id }}',
+#             'workflow_run': '${{ github.run_number }}',
+#             'trigger': '${{ github.event_name }}'
+#         }
         
-        with open('data/execution_state/new_posts_last_execution.json', 'w') as f:
-            json.dump(state, f, indent=2)
+#         with open('data/execution_state/new_posts_last_execution.json', 'w') as f:
+#             json.dump(state, f, indent=2)
         
-        print('Execution state saved')
-        "
+#         print('Execution state saved')
+#         "
         
-    - name: Commit execution state
-      if: always()
-      run: |
-        cd backend
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add data/execution_state/new_posts_last_execution.json
-        if git diff --staged --quiet; then
-          echo "No changes to commit"
-        else
-          git commit -m "Update new posts execution state [skip ci]"
-          git push
-        fi
+#     - name: Commit execution state
+#       if: always()
+#       run: |
+#         cd backend
+#         git config --local user.email "action@github.com"
+#         git config --local user.name "GitHub Action"
+#         git add data/execution_state/new_posts_last_execution.json
+#         if git diff --staged --quiet; then
+#           echo "No changes to commit"
+#         else
+#           git commit -m "Update new posts execution state [skip ci]"
+#           git push
+#         fi
         
-    - name: Upload execution logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: new-posts-logs-${{ github.run_id }}
-        path: backend/logs/github_actions/
-        retention-days: 14
+#     - name: Upload execution logs
+#       if: always()
+#       uses: actions/upload-artifact@v4
+#       with:
+#         name: new-posts-logs-${{ github.run_id }}
+#         path: backend/logs/github_actions/
+#         retention-days: 14
         
-    - name: Notify on failure
-      if: failure()
-      run: |
-        cd backend
-        python scripts/github_actions/shared/notification_service.py \
-          --type failure \
-          --workflow "new-posts-detection" \
-          --run-id "${{ github.run_id }}" \
-          --message "New posts detection failed"
+#     - name: Notify on failure
+#       if: failure()
+#       run: |
+#         cd backend
+#         python scripts/github_actions/shared/notification_service.py \
+#           --type failure \
+#           --workflow "new-posts-detection" \
+#           --run-id "${{ github.run_id }}" \
+#           --message "New posts detection failed"
