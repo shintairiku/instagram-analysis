@@ -1,155 +1,122 @@
 """
 Instagram Monthly Stats Repository
-InstagramMonthlyStats モデル専用のデータアクセス層
+Supabase (PostgREST) 経由で instagram_monthly_stats を操作するデータアクセス層
 """
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, asc, func
-from datetime import datetime, date
+from datetime import date
 
-from ..models.instagram_monthly_stats import InstagramMonthlyStats
+from supabase import Client
+
+from ..core.records import Record, to_record, to_records
+from ..core.supabase_utils import get_data, get_single_data, prepare_record, raise_for_error
 
 
 class InstagramMonthlyStatsRepository:
     """Instagram 月次統計専用リポジトリ"""
     
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, supabase: Client):
+        self.supabase = supabase
     
-    async def get_all(self, account_id: str = None, limit: int = None) -> List[InstagramMonthlyStats]:
+    async def get_all(self, account_id: str = None, limit: int = None) -> List[Record]:
         """月次統計一覧取得"""
-        query = self.db.query(InstagramMonthlyStats)
-        
+        query = self.supabase.table("instagram_monthly_stats").select("*")
         if account_id:
-            query = query.filter(InstagramMonthlyStats.account_id == account_id)
-        
-        query = query.order_by(desc(InstagramMonthlyStats.stats_month))
-        
+            query = query.eq("account_id", account_id)
+        query = query.order("stats_month", desc=True)
         if limit:
             query = query.limit(limit)
-        
-        return query.all()
+        res = query.execute()
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def get_by_id(self, stats_id: str) -> Optional[InstagramMonthlyStats]:
+    async def get_by_id(self, stats_id: str) -> Optional[Record]:
         """ID による月次統計取得"""
-        return (
-            self.db.query(InstagramMonthlyStats)
-            .filter(InstagramMonthlyStats.id == stats_id)
-            .first()
-        )
+        res = self.supabase.table("instagram_monthly_stats").select("*").eq("id", stats_id).limit(1).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
-    async def get_by_account(self, account_id: str, limit: int = None) -> List[InstagramMonthlyStats]:
+    async def get_by_account(self, account_id: str, limit: int = None) -> List[Record]:
         """アカウント別月次統計取得"""
-        query = (
-            self.db.query(InstagramMonthlyStats)
-            .filter(InstagramMonthlyStats.account_id == account_id)
-            .order_by(desc(InstagramMonthlyStats.stats_month))
-        )
-        
-        if limit:
-            query = query.limit(limit)
-        
-        return query.all()
+        return await self.get_all(account_id=account_id, limit=limit)
     
     async def get_by_month_range(
         self, 
         account_id: str,
         start_month: date,
         end_month: date
-    ) -> List[InstagramMonthlyStats]:
+    ) -> List[Record]:
         """月範囲による月次統計取得"""
-        return (
-            self.db.query(InstagramMonthlyStats)
-            .filter(
-                and_(
-                    InstagramMonthlyStats.account_id == account_id,
-                    InstagramMonthlyStats.stats_month >= start_month,
-                    InstagramMonthlyStats.stats_month <= end_month
-                )
-            )
-            .order_by(desc(InstagramMonthlyStats.stats_month))
-            .all()
+        res = (
+            self.supabase.table("instagram_monthly_stats")
+            .select("*")
+            .eq("account_id", account_id)
+            .gte("stats_month", start_month.isoformat())
+            .lte("stats_month", end_month.isoformat())
+            .order("stats_month", desc=True)
+            .execute()
         )
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def get_by_specific_month(self, account_id: str, target_month: date) -> Optional[InstagramMonthlyStats]:
+    async def get_by_specific_month(self, account_id: str, target_month: date) -> Optional[Record]:
         """特定月の月次統計取得"""
-        return (
-            self.db.query(InstagramMonthlyStats)
-            .filter(
-                and_(
-                    InstagramMonthlyStats.account_id == account_id,
-                    InstagramMonthlyStats.stats_month == target_month
-                )
-            )
-            .first()
+        res = (
+            self.supabase.table("instagram_monthly_stats")
+            .select("*")
+            .eq("account_id", account_id)
+            .eq("stats_month", target_month.isoformat())
+            .limit(1)
+            .execute()
         )
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
-    async def create(self, stats_data: dict) -> InstagramMonthlyStats:
+    async def create(self, stats_data: dict) -> Record:
         """新規月次統計作成"""
-        stats = InstagramMonthlyStats(**stats_data)
-        self.db.add(stats)
-        self.db.commit()
-        self.db.refresh(stats)
-        return stats
+        res = self.supabase.table("instagram_monthly_stats").insert(prepare_record(stats_data)).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res)) or Record(stats_data)
     
-    async def create_or_update(self, stats_data: dict) -> InstagramMonthlyStats:
+    async def create_or_update(self, stats_data: dict) -> Record:
         """月次統計作成または更新（アカウントIDと月で判定）"""
-        existing_stats = await self.get_by_specific_month(
-            stats_data['account_id'],
-            stats_data['stats_month']
+        res = (
+            self.supabase.table("instagram_monthly_stats")
+            .upsert(prepare_record(stats_data), on_conflict="account_id,stats_month")
+            .execute()
         )
-        
-        if existing_stats:
-            # 更新
-            for key, value in stats_data.items():
-                if hasattr(existing_stats, key) and key != 'id':
-                    setattr(existing_stats, key, value)
-            
-            self.db.commit()
-            self.db.refresh(existing_stats)
-            return existing_stats
-        else:
-            # 新規作成
-            return await self.create(stats_data)
+        raise_for_error(res)
+        return to_record(get_single_data(res)) or Record(stats_data)
     
-    async def update(self, stats_id: str, stats_data: dict) -> Optional[InstagramMonthlyStats]:
+    async def update(self, stats_id: str, stats_data: dict) -> Optional[Record]:
         """月次統計情報更新"""
-        stats = await self.get_by_id(stats_id)
-        if not stats:
-            return None
-        
-        for key, value in stats_data.items():
-            if hasattr(stats, key) and key != 'id':
-                setattr(stats, key, value)
-        
-        self.db.commit()
-        self.db.refresh(stats)
-        return stats
+        res = self.supabase.table("instagram_monthly_stats").update(prepare_record(stats_data)).eq("id", stats_id).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
     async def delete(self, stats_id: str) -> bool:
         """月次統計削除"""
-        stats = await self.get_by_id(stats_id)
-        if not stats:
-            return False
-        
-        self.db.delete(stats)
-        self.db.commit()
-        return True
+        res = self.supabase.table("instagram_monthly_stats").delete().eq("id", stats_id).execute()
+        raise_for_error(res)
+        return bool(get_data(res))
     
-    async def get_latest_by_account(self, account_id: str) -> Optional[InstagramMonthlyStats]:
+    async def get_latest_by_account(self, account_id: str) -> Optional[Record]:
         """アカウントの最新月次統計取得"""
-        return (
-            self.db.query(InstagramMonthlyStats)
-            .filter(InstagramMonthlyStats.account_id == account_id)
-            .order_by(desc(InstagramMonthlyStats.stats_month))
-            .first()
+        res = (
+            self.supabase.table("instagram_monthly_stats")
+            .select("*")
+            .eq("account_id", account_id)
+            .order("stats_month", desc=True)
+            .limit(1)
+            .execute()
         )
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
     async def get_yearly_trend(
         self, 
         account_id: str, 
         year: int
-    ) -> List[InstagramMonthlyStats]:
+    ) -> List[Record]:
         """年間トレンド取得"""
         start_month = date(year, 1, 1)
         end_month = date(year, 12, 1)
@@ -177,26 +144,29 @@ class InstagramMonthlyStatsRepository:
         
         # フォロワー成長率
         follower_growth_yoy = 0.0
-        if previous_stats.avg_followers_count > 0:
+        if (previous_stats.get("avg_followers_count") or 0) > 0:
             follower_growth_yoy = (
-                (current_stats.avg_followers_count - previous_stats.avg_followers_count) / 
-                previous_stats.avg_followers_count * 100
+                ((current_stats.get("avg_followers_count") or 0) - (previous_stats.get("avg_followers_count") or 0))
+                / (previous_stats.get("avg_followers_count") or 1)
+                * 100
             )
         
         # エンゲージメント成長率
         engagement_growth_yoy = 0.0
-        if previous_stats.avg_engagement_rate > 0:
+        if (previous_stats.get("avg_engagement_rate") or 0) > 0:
             engagement_growth_yoy = (
-                (current_stats.avg_engagement_rate - previous_stats.avg_engagement_rate) / 
-                previous_stats.avg_engagement_rate * 100
+                ((current_stats.get("avg_engagement_rate") or 0) - (previous_stats.get("avg_engagement_rate") or 0))
+                / (previous_stats.get("avg_engagement_rate") or 1)
+                * 100
             )
         
         # 投稿数成長率
         posts_growth_yoy = 0.0
-        if previous_stats.total_posts > 0:
+        if (previous_stats.get("total_posts") or 0) > 0:
             posts_growth_yoy = (
-                (current_stats.total_posts - previous_stats.total_posts) / 
-                previous_stats.total_posts * 100
+                ((current_stats.get("total_posts") or 0) - (previous_stats.get("total_posts") or 0))
+                / (previous_stats.get("total_posts") or 1)
+                * 100
             )
         
         return {
@@ -210,17 +180,32 @@ class InstagramMonthlyStatsRepository:
         account_id: str, 
         limit: int = 12,
         metric: str = 'avg_engagement_rate'
-    ) -> List[InstagramMonthlyStats]:
+    ) -> List[Record]:
         """トップパフォーマンス月取得"""
-        order_column = getattr(InstagramMonthlyStats, metric, InstagramMonthlyStats.avg_engagement_rate)
-        
-        return (
-            self.db.query(InstagramMonthlyStats)
-            .filter(InstagramMonthlyStats.account_id == account_id)
-            .order_by(desc(order_column))
+        allowed_metrics = {
+            "avg_engagement_rate",
+            "avg_followers_count",
+            "follower_growth",
+            "follower_growth_rate",
+            "total_posts",
+            "total_likes",
+            "total_comments",
+            "total_reach",
+            "stats_month",
+            "created_at",
+        }
+        order_metric = metric if metric in allowed_metrics else "avg_engagement_rate"
+
+        res = (
+            self.supabase.table("instagram_monthly_stats")
+            .select("*")
+            .eq("account_id", account_id)
+            .order(order_metric, desc=True)
             .limit(limit)
-            .all()
+            .execute()
         )
+        raise_for_error(res)
+        return to_records(get_data(res))
     
     async def calculate_seasonal_trends(
         self, 
@@ -245,12 +230,12 @@ class InstagramMonthlyStatsRepository:
         seasonal_data = {}
         
         for season_name, months in seasons.items():
-            season_stats = [s for s in stats_list if s.stats_month.month in months]
+            season_stats = [s for s in stats_list if date.fromisoformat(s["stats_month"]).month in months]
             
             if season_stats:
-                avg_engagement = sum(s.avg_engagement_rate for s in season_stats) / len(season_stats)
-                avg_followers_growth = sum(s.follower_growth for s in season_stats) / len(season_stats)
-                avg_posts = sum(s.total_posts for s in season_stats) / len(season_stats)
+                avg_engagement = sum((s.get("avg_engagement_rate") or 0) for s in season_stats) / len(season_stats)
+                avg_followers_growth = sum((s.get("follower_growth") or 0) for s in season_stats) / len(season_stats)
+                avg_posts = sum((s.get("total_posts") or 0) for s in season_stats) / len(season_stats)
                 
                 seasonal_data[season_name] = {
                     'avg_engagement_rate': round(avg_engagement, 2),
@@ -261,19 +246,10 @@ class InstagramMonthlyStatsRepository:
         
         return seasonal_data
     
-    async def bulk_create(self, stats_list: List[dict]) -> List[InstagramMonthlyStats]:
+    async def bulk_create(self, stats_list: List[dict]) -> List[Record]:
         """一括作成"""
-        created_stats = []
-        
-        for stats_data in stats_list:
-            stats = InstagramMonthlyStats(**stats_data)
-            self.db.add(stats)
-            created_stats.append(stats)
-        
-        self.db.commit()
-        
-        # refresh all objects
-        for stats in created_stats:
-            self.db.refresh(stats)
-        
-        return created_stats
+        if not stats_list:
+            return []
+        res = self.supabase.table("instagram_monthly_stats").insert([prepare_record(s) for s in stats_list]).execute()
+        raise_for_error(res)
+        return to_records(get_data(res))

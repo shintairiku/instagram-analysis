@@ -1,210 +1,175 @@
 """
 Instagram Post Repository
-InstagramPost モデル専用のデータアクセス層
+Supabase (PostgREST) 経由で instagram_posts を操作するデータアクセス層
 """
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, asc, func
-from datetime import datetime, date
+from datetime import date, datetime, time, timedelta, timezone
 
-from ..models.instagram_post import InstagramPost
+from supabase import Client
+
+from ..core.records import Record, to_record, to_records
+from ..core.supabase_utils import get_data, get_count, get_single_data, prepare_record, raise_for_error
 
 
 class InstagramPostRepository:
     """Instagram 投稿専用リポジトリ"""
     
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, supabase: Client):
+        self.supabase = supabase
     
-    async def get_all(self, account_id: str = None, limit: int = None) -> List[InstagramPost]:
+    async def get_all(self, account_id: str = None, limit: int = None) -> List[Record]:
         """投稿一覧取得"""
-        query = self.db.query(InstagramPost)
-        
+        query = self.supabase.table("instagram_posts").select("*")
         if account_id:
-            query = query.filter(InstagramPost.account_id == account_id)
-        
-        query = query.order_by(desc(InstagramPost.posted_at))
-        
+            query = query.eq("account_id", account_id)
+        query = query.order("posted_at", desc=True)
         if limit:
             query = query.limit(limit)
-        
-        return query.all()
+        res = query.execute()
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def get_by_id(self, post_id: str) -> Optional[InstagramPost]:
+    async def get_by_id(self, post_id: str) -> Optional[Record]:
         """ID による投稿取得"""
-        return (
-            self.db.query(InstagramPost)
-            .filter(InstagramPost.id == post_id)
-            .first()
-        )
+        res = self.supabase.table("instagram_posts").select("*").eq("id", post_id).limit(1).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
-    async def get_by_instagram_post_id(self, instagram_post_id: str) -> Optional[InstagramPost]:
+    async def get_by_instagram_post_id(self, instagram_post_id: str) -> Optional[Record]:
         """Instagram Post ID による投稿取得"""
-        return (
-            self.db.query(InstagramPost)
-            .filter(InstagramPost.instagram_post_id == instagram_post_id)
-            .first()
+        res = (
+            self.supabase.table("instagram_posts")
+            .select("*")
+            .eq("instagram_post_id", instagram_post_id)
+            .limit(1)
+            .execute()
         )
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
-    async def get_by_account(self, account_id: str, limit: int = None) -> List[InstagramPost]:
+    async def get_by_account(self, account_id: str, limit: int = None) -> List[Record]:
         """アカウント別投稿取得"""
-        query = (
-            self.db.query(InstagramPost)
-            .filter(InstagramPost.account_id == account_id)
-            .order_by(desc(InstagramPost.posted_at))
-        )
-        
-        if limit:
-            query = query.limit(limit)
-        
-        return query.all()
+        return await self.get_all(account_id=account_id, limit=limit)
     
     async def get_by_date_range(
         self, 
         account_id: str,
         start_date: date,
         end_date: date
-    ) -> List[InstagramPost]:
+    ) -> List[Record]:
         """日付範囲による投稿取得"""
-        return (
-            self.db.query(InstagramPost)
-            .filter(
-                and_(
-                    InstagramPost.account_id == account_id,
-                    func.date(InstagramPost.posted_at) >= start_date,
-                    func.date(InstagramPost.posted_at) <= end_date
-                )
-            )
-            .order_by(desc(InstagramPost.posted_at))
-            .all()
+        start_dt = datetime.combine(start_date, time.min).replace(tzinfo=timezone.utc)
+        end_dt = datetime.combine(end_date + timedelta(days=1), time.min).replace(tzinfo=timezone.utc)
+        res = (
+            self.supabase.table("instagram_posts")
+            .select("*")
+            .eq("account_id", account_id)
+            .gte("posted_at", start_dt.isoformat())
+            .lt("posted_at", end_dt.isoformat())
+            .order("posted_at", desc=True)
+            .execute()
         )
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def get_by_specific_date(self, account_id: str, target_date: date) -> List[InstagramPost]:
+    async def get_by_specific_date(self, account_id: str, target_date: date) -> List[Record]:
         """特定日の投稿取得"""
-        return (
-            self.db.query(InstagramPost)
-            .filter(
-                and_(
-                    InstagramPost.account_id == account_id,
-                    func.date(InstagramPost.posted_at) == target_date
-                )
-            )
-            .order_by(desc(InstagramPost.posted_at))
-            .all()
-        )
+        return await self.get_by_date_range(account_id, target_date, target_date)
     
     async def get_by_media_type(
         self, 
         account_id: str, 
         media_type: str,
         limit: int = None
-    ) -> List[InstagramPost]:
+    ) -> List[Record]:
         """メディアタイプ別投稿取得"""
         query = (
-            self.db.query(InstagramPost)
-            .filter(
-                and_(
-                    InstagramPost.account_id == account_id,
-                    InstagramPost.media_type == media_type
-                )
-            )
-            .order_by(desc(InstagramPost.posted_at))
+            self.supabase.table("instagram_posts")
+            .select("*")
+            .eq("account_id", account_id)
+            .eq("media_type", media_type)
+            .order("posted_at", desc=True)
         )
-        
         if limit:
             query = query.limit(limit)
-        
-        return query.all()
+        res = query.execute()
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def create(self, post_data: dict) -> InstagramPost:
+    async def create(self, post_data: dict) -> Record:
         """新規投稿作成"""
-        post = InstagramPost(**post_data)
-        self.db.add(post)
-        self.db.commit()
-        self.db.refresh(post)
-        return post
+        res = self.supabase.table("instagram_posts").insert(prepare_record(post_data)).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res)) or Record(post_data)
     
-    async def create_or_update(self, post_data: dict) -> InstagramPost:
+    async def create_or_update(self, post_data: dict) -> Record:
         """投稿作成または更新（Instagram Post ID で判定）"""
-        existing_post = await self.get_by_instagram_post_id(
-            post_data['instagram_post_id']
+        res = (
+            self.supabase.table("instagram_posts")
+            .upsert(prepare_record(post_data), on_conflict="instagram_post_id")
+            .execute()
         )
-        
-        if existing_post:
-            # 更新
-            for key, value in post_data.items():
-                if hasattr(existing_post, key) and key != 'id':
-                    setattr(existing_post, key, value)
-            
-            self.db.commit()
-            self.db.refresh(existing_post)
-            return existing_post
-        else:
-            # 新規作成
-            return await self.create(post_data)
+        raise_for_error(res)
+        return to_record(get_single_data(res)) or Record(post_data)
     
-    async def update(self, post_id: str, post_data: dict) -> Optional[InstagramPost]:
+    async def update(self, post_id: str, post_data: dict) -> Optional[Record]:
         """投稿情報更新"""
-        post = await self.get_by_id(post_id)
-        if not post:
-            return None
-        
-        for key, value in post_data.items():
-            if hasattr(post, key) and key != 'id':
-                setattr(post, key, value)
-        
-        self.db.commit()
-        self.db.refresh(post)
-        return post
+        res = self.supabase.table("instagram_posts").update(prepare_record(post_data)).eq("id", post_id).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
     async def delete(self, post_id: str) -> bool:
         """投稿削除"""
-        post = await self.get_by_id(post_id)
-        if not post:
-            return False
-        
-        self.db.delete(post)
-        self.db.commit()
-        return True
+        res = self.supabase.table("instagram_posts").delete().eq("id", post_id).execute()
+        raise_for_error(res)
+        return bool(get_data(res))
     
     async def get_posts_without_metrics(
         self, 
         account_id: str, 
         cutoff_date: date
-    ) -> List[InstagramPost]:
+    ) -> List[Record]:
         """メトリクスが未取得の投稿を取得"""
-        from ..models.instagram_post_metrics import InstagramPostMetrics
-        
-        return (
-            self.db.query(InstagramPost)
-            .outerjoin(InstagramPostMetrics)
-            .filter(
-                and_(
-                    InstagramPost.account_id == account_id,
-                    InstagramPost.posted_at >= cutoff_date,
-                    InstagramPostMetrics.id.is_(None)
-                )
-            )
-            .order_by(desc(InstagramPost.posted_at))
-            .all()
+        cutoff_dt = datetime.combine(cutoff_date, time.min).replace(tzinfo=timezone.utc)
+        posts_res = (
+            self.supabase.table("instagram_posts")
+            .select("id,account_id,instagram_post_id,media_type,caption,media_url,thumbnail_url,permalink,posted_at,created_at")
+            .eq("account_id", account_id)
+            .gte("posted_at", cutoff_dt.isoformat())
+            .order("posted_at", desc=True)
+            .execute()
         )
+        raise_for_error(posts_res)
+        posts = get_data(posts_res)
+        if not posts:
+            return []
+
+        post_ids = [p["id"] for p in posts if p.get("id")]
+        metrics_res = self.supabase.table("instagram_post_metrics").select("post_id").in_("post_id", post_ids).execute()
+        raise_for_error(metrics_res)
+        post_ids_with_metrics = {m["post_id"] for m in get_data(metrics_res) if m.get("post_id")}
+
+        without_metrics = [p for p in posts if p.get("id") not in post_ids_with_metrics]
+        return to_records(without_metrics)
     
-    async def get_latest_by_account(self, account_id: str) -> Optional[InstagramPost]:
+    async def get_latest_by_account(self, account_id: str) -> Optional[Record]:
         """アカウントの最新投稿取得"""
-        return (
-            self.db.query(InstagramPost)
-            .filter(InstagramPost.account_id == account_id)
-            .order_by(desc(InstagramPost.posted_at))
-            .first()
+        res = (
+            self.supabase.table("instagram_posts")
+            .select("*")
+            .eq("account_id", account_id)
+            .order("posted_at", desc=True)
+            .limit(1)
+            .execute()
         )
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
     async def count_by_account(self, account_id: str) -> int:
         """アカウント別投稿数カウント"""
-        return (
-            self.db.query(InstagramPost)
-            .filter(InstagramPost.account_id == account_id)
-            .count()
-        )
+        res = self.supabase.table("instagram_posts").select("id", count="exact").eq("account_id", account_id).execute()
+        raise_for_error(res)
+        return get_count(res) or len(get_data(res))
     
     async def count_by_date_range(
         self, 
@@ -213,28 +178,25 @@ class InstagramPostRepository:
         end_date: date
     ) -> int:
         """日付範囲での投稿数カウント"""
-        return (
-            self.db.query(InstagramPost)
-            .filter(
-                and_(
-                    InstagramPost.account_id == account_id,
-                    func.date(InstagramPost.posted_at) >= start_date,
-                    func.date(InstagramPost.posted_at) <= end_date
-                )
-            )
-            .count()
+        start_dt = datetime.combine(start_date, time.min).replace(tzinfo=timezone.utc)
+        end_dt = datetime.combine(end_date + timedelta(days=1), time.min).replace(tzinfo=timezone.utc)
+        res = (
+            self.supabase.table("instagram_posts")
+            .select("id", count="exact")
+            .eq("account_id", account_id)
+            .gte("posted_at", start_dt.isoformat())
+            .lt("posted_at", end_dt.isoformat())
+            .execute()
         )
+        raise_for_error(res)
+        return get_count(res) or len(get_data(res))
     
     async def get_media_type_distribution(self, account_id: str) -> dict:
         """メディアタイプ別分布取得"""
-        results = (
-            self.db.query(
-                InstagramPost.media_type,
-                func.count(InstagramPost.id).label('count')
-            )
-            .filter(InstagramPost.account_id == account_id)
-            .group_by(InstagramPost.media_type)
-            .all()
-        )
-        
-        return {result.media_type: result.count for result in results}
+        res = self.supabase.table("instagram_posts").select("media_type").eq("account_id", account_id).execute()
+        raise_for_error(res)
+        distribution: dict[str, int] = {}
+        for row in get_data(res):
+            media_type = row.get("media_type") or "UNKNOWN"
+            distribution[media_type] = distribution.get(media_type, 0) + 1
+        return distribution

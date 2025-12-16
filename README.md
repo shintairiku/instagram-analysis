@@ -13,7 +13,7 @@
 ### バックエンド
 - **FastAPI** (Python)
 - **PostgreSQL** (Supabase)
-- **SQLAlchemy** (ORM)
+- **Supabase SDK** (supabase-py)
 
 ### デプロイ
 - **Frontend**: Vercel
@@ -52,8 +52,8 @@ project-root/
 │   ├── package.json
 │   └── Dockerfile
 ├── supabase/
-│   ├── insert-table/
-│   └── insert-dummy-data/
+│   ├── config.toml
+│   └── migrations/
 ├── docs/
 └── docker-compose.yml
 ```
@@ -62,20 +62,53 @@ project-root/
 
 ### 1. 必要な環境変数の設定
 
-#### frontend/.env.local
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+まずは例ファイルをコピーして、実値を設定してください。
+
+```bash
+# Frontend
+cp frontend/.env.example frontend/.env.local
+
+# Backend
+cp backend/.env.example backend/.env
+
+# verification（必要な場合のみ）
+cp verification/.env.example verification/.env
 ```
 
-#### backend/.env
-```env
-DATABASE_URL=postgresql://postgres:password@localhost:5432/instagram_analysis
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_key
-```
+#### 環境変数一覧
+
+##### Frontend（`frontend/.env.local`）
+| 変数名 | 必須 | 説明 |
+|---|---:|---|
+| `NEXT_PUBLIC_API_URL` | ✅ | フロントエンドから呼び出すバックエンドAPIのベースURL（例: `http://localhost:8000`） |
+
+##### Backend（`backend/.env`）
+| 変数名 | 必須 | 説明 |
+|---|---:|---|
+| `SUPABASE_URL` | ✅ | SupabaseプロジェクトURL |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Supabaseのservice role key（**フロントには絶対に渡さない**） |
+| `SUPABASE_ANON_KEY` | 任意 | 将来的にフロントでSupabaseを直接使う場合のanon key |
+| `DATABASE_URL` | 任意 | Supabase CLI / 直接SQLツール用のPostgreSQL接続URL |
+| `FACEBOOK_APP_ID` | 任意 | Facebook/InstagramアプリID（設定検証・拡張用途。未設定でも動作します） |
+| `FACEBOOK_APP_SECRET` | 任意 | Facebook/InstagramアプリSecret（設定検証・拡張用途。未設定でも動作します） |
+| `SLACK_WEBHOOK_URL` | 任意 | GitHub Actions等からSlack通知するWebhook URL（未設定の場合は通知をスキップ） |
+
+##### GitHub Actions（Repository Secrets）
+| 変数名 | 必須 | 説明 |
+|---|---:|---|
+| `SUPABASE_URL` | ✅ | Actions実行時のSupabase URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Actions実行時のSupabase service role key |
+| `SLACK_WEBHOOK_URL` | 任意 | 失敗/新規投稿などのSlack通知先 |
+
+##### verification（`verification/.env`：検証スクリプト用）
+| 変数名 | 必須 | 説明 |
+|---|---:|---|
+| `INSTAGRAM_USER_ID` | ✅ | 検証対象のInstagram User ID |
+| `ACCESS_TOKEN` | ✅ | Instagram Graph APIにアクセスできる（通常はFacebook Page）アクセストークン |
+| `USERNAME` | 任意 | ログ/確認用のユーザー名（スクリプトによって参照） |
+| `INSTAGRAM_APP_ID` | 任意 | アカウントセットアップ検証用のApp ID |
+| `INSTAGRAM_APP_SECRET` | 任意 | アカウントセットアップ検証用のApp Secret |
+| `INSTAGRAM_SHORT_TOKEN` | 任意 | アカウントセットアップ検証用の短期トークン |
 
 ### 2. Docker Compose での起動
 ```bash
@@ -120,4 +153,4 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ## データベース
 
-PostgreSQL (Supabase) を使用。テーブル作成とダミーデータ挿入は `supabase/` ディレクトリ内のSQLファイルを参照。
+PostgreSQL (Supabase) を使用。スキーマは `supabase/migrations/` に管理し、後で `npx supabase db push` で反映できます（このリポジトリではマイグレーションの実行は行いません）。

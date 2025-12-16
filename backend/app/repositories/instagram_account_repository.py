@@ -1,81 +1,77 @@
 """
 Instagram Account Repository
-InstagramAccount モデル専用のデータアクセス層
+Supabase (PostgREST) 経由で instagram_accounts を操作するデータアクセス層
 """
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from datetime import datetime
 
-from ..models.instagram_account import InstagramAccount
+from supabase import Client
+
+from ..core.records import Record, to_record, to_records
+from ..core.supabase_utils import get_data, get_single_data, prepare_record, raise_for_error
 
 
 class InstagramAccountRepository:
     """Instagram アカウント専用リポジトリ"""
     
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, supabase: Client):
+        self.supabase = supabase
     
-    async def get_all(self) -> List[InstagramAccount]:
+    async def get_all(self) -> List[Record]:
         """全アカウント取得"""
-        return self.db.query(InstagramAccount).all()
+        res = self.supabase.table("instagram_accounts").select("*").order("created_at", desc=False).execute()
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def get_active_accounts(self) -> List[InstagramAccount]:
+    async def get_active_accounts(self) -> List[Record]:
         """アクティブなアカウント取得"""
-        return (
-            self.db.query(InstagramAccount)
-            .filter(InstagramAccount.is_active == True)
-            .all()
+        res = (
+            self.supabase.table("instagram_accounts")
+            .select("*")
+            .eq("is_active", True)
+            .order("created_at", desc=False)
+            .execute()
         )
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def get_by_id(self, account_id: str) -> Optional[InstagramAccount]:
+    async def get_by_id(self, account_id: str) -> Optional[Record]:
         """ID によるアカウント取得"""
-        return (
-            self.db.query(InstagramAccount)
-            .filter(InstagramAccount.id == account_id)
-            .first()
-        )
+        res = self.supabase.table("instagram_accounts").select("*").eq("id", account_id).limit(1).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
-    async def get_by_instagram_user_id(self, instagram_user_id: str) -> Optional[InstagramAccount]:
+    async def get_by_instagram_user_id(self, instagram_user_id: str) -> Optional[Record]:
         """Instagram User ID によるアカウント取得"""
-        return (
-            self.db.query(InstagramAccount)
-            .filter(InstagramAccount.instagram_user_id == instagram_user_id)
-            .first()
+        res = (
+            self.supabase.table("instagram_accounts")
+            .select("*")
+            .eq("instagram_user_id", instagram_user_id)
+            .limit(1)
+            .execute()
         )
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
-    async def get_by_username(self, username: str) -> Optional[InstagramAccount]:
+    async def get_by_username(self, username: str) -> Optional[Record]:
         """ユーザーネームによるアカウント取得"""
-        return (
-            self.db.query(InstagramAccount)
-            .filter(InstagramAccount.username == username)
-            .first()
-        )
+        res = self.supabase.table("instagram_accounts").select("*").eq("username", username).limit(1).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
-    async def create(self, account_data: dict) -> InstagramAccount:
+    async def create(self, account_data: dict) -> Record:
         """新規アカウント作成"""
-        account = InstagramAccount(**account_data)
-        self.db.add(account)
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+        res = self.supabase.table("instagram_accounts").insert(prepare_record(account_data)).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res)) or Record(account_data)
     
-    async def update(self, account_id: str, account_data: dict) -> Optional[InstagramAccount]:
+    async def update(self, account_id: str, account_data: dict) -> Optional[Record]:
         """アカウント情報更新"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return None
-        
         # 更新時刻を設定
-        account_data['updated_at'] = datetime.now()
-        
-        for key, value in account_data.items():
-            if hasattr(account, key):
-                setattr(account, key, value)
-        
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+        account_data["updated_at"] = datetime.now().isoformat()
+        res = self.supabase.table("instagram_accounts").update(prepare_record(account_data)).eq("id", account_id).execute()
+        raise_for_error(res)
+        return to_record(get_single_data(res))
     
     async def update_basic_info(
         self, 
@@ -83,164 +79,97 @@ class InstagramAccountRepository:
         username: str = None,
         account_name: str = None,
         profile_picture_url: str = None
-    ) -> Optional[InstagramAccount]:
+    ) -> Optional[Record]:
         """基本情報の更新"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return None
-        
+        update_data: dict = {"updated_at": datetime.now().isoformat()}
         if username is not None:
-            account.username = username
+            update_data["username"] = username
         if account_name is not None:
-            account.account_name = account_name
+            update_data["account_name"] = account_name
         if profile_picture_url is not None:
-            account.profile_picture_url = profile_picture_url
-        
-        account.updated_at = datetime.now()
-        
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+            update_data["profile_picture_url"] = profile_picture_url
+        return await self.update(account_id, update_data)
     
     async def update_token(
         self, 
         account_id: str, 
         access_token_encrypted: str,
         token_expires_at: datetime = None
-    ) -> Optional[InstagramAccount]:
+    ) -> Optional[Record]:
         """アクセストークン更新"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return None
-        
-        account.access_token_encrypted = access_token_encrypted
+        update_data: dict = {
+            "access_token_encrypted": access_token_encrypted,
+            "updated_at": datetime.now().isoformat(),
+        }
         if token_expires_at:
-            account.token_expires_at = token_expires_at
-        account.updated_at = datetime.now()
-        
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+            update_data["token_expires_at"] = token_expires_at.isoformat()
+        return await self.update(account_id, update_data)
     
-    async def deactivate(self, account_id: str) -> Optional[InstagramAccount]:
+    async def deactivate(self, account_id: str) -> Optional[Record]:
         """アカウント非アクティブ化"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return None
-        
-        account.is_active = False
-        account.updated_at = datetime.now()
-        
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+        return await self.update(account_id, {"is_active": False, "updated_at": datetime.now().isoformat()})
     
-    async def activate(self, account_id: str) -> Optional[InstagramAccount]:
+    async def activate(self, account_id: str) -> Optional[Record]:
         """アカウントアクティブ化"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return None
-        
-        account.is_active = True
-        account.updated_at = datetime.now()
-        
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+        return await self.update(account_id, {"is_active": True, "updated_at": datetime.now().isoformat()})
     
     async def delete(self, account_id: str) -> bool:
         """アカウント削除"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return False
-        
-        self.db.delete(account)
-        self.db.commit()
-        return True
+        res = self.supabase.table("instagram_accounts").delete().eq("id", account_id).execute()
+        raise_for_error(res)
+        return bool(get_data(res))
     
-    async def get_token_expiring_soon(self, days_threshold: int = 7) -> List[InstagramAccount]:
+    async def get_token_expiring_soon(self, days_threshold: int = 7) -> List[Record]:
         """トークン期限切れが近いアカウント取得"""
         from datetime import timedelta
         threshold_date = datetime.now() + timedelta(days=days_threshold)
         
-        return (
-            self.db.query(InstagramAccount)
-            .filter(
-                and_(
-                    InstagramAccount.is_active == True,
-                    InstagramAccount.token_expires_at <= threshold_date
-                )
-            )
-            .all()
+        res = (
+            self.supabase.table("instagram_accounts")
+            .select("*")
+            .eq("is_active", True)
+            .lte("token_expires_at", threshold_date.isoformat())
+            .execute()
         )
+        raise_for_error(res)
+        return to_records(get_data(res))
     
-    async def update_last_sync(self, account_id: str, sync_time: datetime) -> Optional[InstagramAccount]:
+    async def update_last_sync(self, account_id: str, sync_time: datetime) -> Optional[Record]:
         """最終同期時刻更新"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return None
-        
-        account.last_synced_at = sync_time
-        account.updated_at = datetime.now()
-        
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+        return await self.update(
+            account_id,
+            {
+                "last_synced_at": sync_time.isoformat(),
+                "updated_at": datetime.now().isoformat(),
+            },
+        )
     
     async def update_collection_status(
         self, 
         account_id: str, 
         collection_success: bool,
         error_message: str = None
-    ) -> Optional[InstagramAccount]:
+    ) -> Optional[Record]:
         """データ収集ステータス更新"""
-        account = await self.get_by_id(account_id)
-        if not account:
-            return None
-        
-        # 最終データ収集成功時刻を更新
+        update_data = {"updated_at": datetime.now().isoformat()}
         if collection_success:
-            account.last_synced_at = datetime.now()
-        
-        # TODO: collection_statusやerror_messageフィールドが追加された場合の処理
-        # account.collection_status = 'success' if collection_success else 'failed'
-        # account.last_error_message = error_message if not collection_success else None
-        
-        account.updated_at = datetime.now()
-        
-        self.db.commit()
-        self.db.refresh(account)
-        return account
+            update_data["last_synced_at"] = datetime.now().isoformat()
+        return await self.update(account_id, update_data)
     
-    async def get_accounts_for_collection(self, account_filter: Optional[List[str]] = None) -> List[InstagramAccount]:
+    async def get_accounts_for_collection(self, account_filter: Optional[List[str]] = None) -> List[Record]:
         """データ収集対象アカウント取得"""
-        query = (
-            self.db.query(InstagramAccount)
-            .filter(InstagramAccount.is_active == True)
-        )
-        
-        # フィルタ適用
+        query = self.supabase.table("instagram_accounts").select("*").eq("is_active", True)
         if account_filter:
-            query = query.filter(InstagramAccount.instagram_user_id.in_(account_filter))
-        
-        return query.all()
+            query = query.in_("instagram_user_id", account_filter)
+        res = query.execute()
+        raise_for_error(res)
+        return to_records(get_data(res))
     
     async def bulk_update_sync_status(self, account_ids: List[str], sync_time: datetime) -> int:
         """複数アカウントの同期ステータス一括更新"""
-        try:
-            updated_count = (
-                self.db.query(InstagramAccount)
-                .filter(InstagramAccount.id.in_(account_ids))
-                .update(
-                    {
-                        'last_synced_at': sync_time,
-                        'updated_at': datetime.now()
-                    },
-                    synchronize_session=False
-                )
-            )
-            self.db.commit()
-            return updated_count
-        except Exception as e:
-            self.db.rollback()
-            raise e
+        if not account_ids:
+            return 0
+        update_data = {"last_synced_at": sync_time.isoformat(), "updated_at": datetime.now().isoformat()}
+        res = self.supabase.table("instagram_accounts").update(update_data).in_("id", account_ids).execute()
+        raise_for_error(res)
+        return len(get_data(res))

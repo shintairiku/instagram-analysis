@@ -65,17 +65,12 @@ class PostDetector:
         # 実際の実装では事前に既存投稿IDリストを取得して
         # メモリ上でチェックする方が効率的
         
-        from app.core.database import SessionLocal
-        db = SessionLocal()
+        from app.core.database import get_db_sync
         try:
-            post_repo = InstagramPostRepository(db)
+            supabase = get_db_sync()
+            post_repo = InstagramPostRepository(supabase)
             existing_post = await post_repo.get_by_instagram_post_id(instagram_post_id)
             return existing_post is not None
         except Exception as e:
             self.logger.error(f"Database error checking post existence: {e}")
             return False
-        finally:
-            try:
-                db.close()
-            except Exception as e:
-                self.logger.warning(f"Error closing database connection: {e}")

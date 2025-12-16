@@ -161,9 +161,11 @@ class DailyCollectorService:
             raise
         finally:
             # リソース解放
-            if self.db:
-                self.db.close()
-                logger.debug("Database session closed")
+            self.db = None
+            self.account_repo = None
+            self.daily_stats_repo = None
+            self.post_repo = None
+            self.post_metrics_repo = None
     
     async def _get_target_accounts(self, account_filter: Optional[List[str]] = None) -> List:
         """

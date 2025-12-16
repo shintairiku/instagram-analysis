@@ -173,7 +173,6 @@ async def get_target_accounts(args) -> List[str]:
         db = get_db_sync()
         repo = InstagramAccountRepository(db)
         accounts = await repo.get_active_accounts()
-        db.close()
         return [str(account.instagram_user_id) for account in accounts]
     else:
         raise ValueError("アカウントが指定されていません。")
@@ -539,8 +538,6 @@ async def collect_daily_stats_from_posts(
                 posts_count = len(daily_posts)
                 total_likes = sum(p.get('like_count', 0) for p in daily_posts)
                 total_comments = sum(p.get('comments_count', 0) for p in daily_posts)
-                avg_likes_per_post = total_likes / posts_count if posts_count > 0 else 0.0
-                avg_comments_per_post = total_comments / posts_count if posts_count > 0 else 0.0
                 
                 # メディアタイプ分布
                 media_types = {}
@@ -554,13 +551,10 @@ async def collect_daily_stats_from_posts(
                     'stats_date': current_date,
                     'followers_count': current_basic_data.get('followers_count', 0),  # 現在値
                     'following_count': current_basic_data.get('follows_count', 0),    # 現在値
-                    'reach': 0,  # インサイトAPIでは取得できないため0
-                    'follower_count_change': 0,  # インサイトAPIでは取得できないため0
+                    'media_count': current_basic_data.get('media_count', 0),          # 現在値
                     'posts_count': posts_count,
                     'total_likes': total_likes,
                     'total_comments': total_comments,
-                    'avg_likes_per_post': round(avg_likes_per_post, 2),
-                    'avg_comments_per_post': round(avg_comments_per_post, 2),
                     'media_type_distribution': json.dumps(media_types),
                     'data_sources': json.dumps(['posts_aggregation'])
                 }
@@ -591,8 +585,6 @@ async def collect_daily_stats_from_posts(
                 result['failed_days'] += 1
             
             current_date += timedelta(days=1)
-        
-        db.close()
         
         logger.info(f"✅ 日次統計作成完了: {result['success_days']}/{result['total_days']} 日")
         return result

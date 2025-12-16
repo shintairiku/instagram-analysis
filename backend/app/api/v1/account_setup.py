@@ -5,7 +5,7 @@ Account Setup API Endpoints
 import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
+from supabase import Client
 
 from ...core.database import get_db
 from ...services.api.account_setup_service import create_account_setup_service, AccountSetupService
@@ -31,7 +31,7 @@ router = APIRouter(tags=["account-setup"])
 )
 async def setup_accounts(
     request: AccountSetupRequest,
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> AccountSetupResponse:
     """
     アカウントセットアップ
@@ -84,7 +84,7 @@ async def setup_accounts(
     description="アカウントセットアップの状況を確認します。"
 )
 async def get_setup_status(
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> dict:
     """
     セットアップ状況確認
@@ -167,7 +167,7 @@ async def get_setup_status(
 async def get_discovered_accounts(
     active_only: bool = True,
     include_metrics: bool = False,
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> AccountListResponse:
     """
     登録済みアカウント一覧取得

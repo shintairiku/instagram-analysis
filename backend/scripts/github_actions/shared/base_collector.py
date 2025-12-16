@@ -10,7 +10,7 @@ from typing import List, Optional
 from datetime import datetime
 import os
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_sync
 from app.repositories.instagram_account_repository import InstagramAccountRepository
 
 class BaseCollector:
@@ -41,26 +41,12 @@ class BaseCollector:
     async def _init_database(self):
         """データベース接続初期化"""
         if not self.db:
-            self.db = SessionLocal()
+            self.db = get_db_sync()
             self.logger.info("Database connection initialized")
             
     async def _cleanup_database(self):
         """データベース接続クリーンアップ"""
-        if self.db:
-            try:
-                # 明示的にコミットしてからクローズ
-                self.db.commit()
-                self.db.close()
-                self.logger.info("Database connection closed")
-            except Exception as e:
-                self.logger.warning(f"Error during database cleanup: {e}")
-                try:
-                    self.db.rollback()
-                    self.db.close()
-                except Exception as cleanup_error:
-                    self.logger.error(f"Failed to cleanup database connection: {cleanup_error}")
-            finally:
-                self.db = None
+        self.db = None
             
     async def _get_target_accounts(self, target_accounts: Optional[List[str]] = None):
         """対象アカウント取得"""

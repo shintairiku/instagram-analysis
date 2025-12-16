@@ -21,11 +21,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://postgres.wxsgwvbdtpeidjpmdhte:shintairiku@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
-      - SUPABASE_URL=https://wxsgwvbdtpeidjpmdhte.supabase.co
-      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4c2d3dmJkdHBlaWRqcG1kaHRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzU5MjczOTcsImV4cCI6MjA1MTUwMzM5N30.YIZHNj2VtZp_IwlPf3V0xhE8aMJTkfZF2wZNQl5NlJ8
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4c2d3dmJkdHBlaWRqcG1kaHRlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNTkyNzM5NywiZXhwIjoyMDUxNTAzMzk3fQ.Z1_SN-PxFzj8YS3tKLGXFEzfZdgJ4_7T4vZm7KeBR4Y
+    env_file:
+      - ./backend/.env
     volumes:
       - ./backend:/app
 
