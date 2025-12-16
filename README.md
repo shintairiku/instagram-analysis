@@ -94,8 +94,15 @@ npm run dev
 #### バックエンド
 ```bash
 cd backend
+uv sync
+uv run --env-file .env uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### バックエンド（pip / 互換）
+```bash
+cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## カラーテーマ
