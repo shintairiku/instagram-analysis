@@ -115,12 +115,20 @@ export function AccountProvider({ children, defaultAccountId }: AccountProviderP
 
       // 選択アカウントの設定（現在の値を参照するためstateのコールバック形式を使用）
       setSelectedAccount(currentSelected => {
-        if (!currentSelected || !response.accounts.find(acc => acc.id === currentSelected.id)) {
+        if (!currentSelected) {
           const newSelectedAccount = loadSelectedAccount(response.accounts);
           saveSelectedAccount(newSelectedAccount);
           return newSelectedAccount;
         }
-        return currentSelected;
+
+        const updatedSelected = response.accounts.find(acc => acc.id === currentSelected.id);
+        if (updatedSelected) {
+          return updatedSelected;
+        }
+
+        const fallbackSelected = loadSelectedAccount(response.accounts);
+        saveSelectedAccount(fallbackSelected);
+        return fallbackSelected;
       });
 
       console.log(`Successfully loaded ${response.accounts.length} accounts`);
@@ -242,6 +250,10 @@ export function AccountProvider({ children, defaultAccountId }: AccountProviderP
             });
             setAccounts(response.accounts);
             saveToCache(response.accounts);
+            setSelectedAccount(currentSelected => {
+              if (!currentSelected) return loadSelectedAccount(response.accounts);
+              return response.accounts.find(acc => acc.id === currentSelected.id) || currentSelected;
+            });
           } catch (error) {
             console.error('Background refresh failed:', error);
           }

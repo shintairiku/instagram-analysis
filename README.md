@@ -81,6 +81,7 @@ cp verification/.env.example verification/.env
 | 変数名 | 必須 | 説明 |
 |---|---:|---|
 | `NEXT_PUBLIC_API_URL` | ✅ | フロントエンドから呼び出すバックエンドAPIのベースURL（例: `http://localhost:8000`） |
+| `COLLECTION_TRIGGER_TOKEN` | ✅ | Next.js API ルート（サーバ側）から手動更新APIを呼ぶためのトークン（ブラウザには公開されません） |
 
 ##### Backend（`backend/.env`）
 | 変数名 | 必須 | 説明 |
@@ -91,6 +92,8 @@ cp verification/.env.example verification/.env
 | `DATABASE_URL` | 任意 | Supabase CLI / 直接SQLツール用のPostgreSQL接続URL |
 | `FACEBOOK_APP_ID` | 任意 | Facebook/InstagramアプリID（設定検証・拡張用途。未設定でも動作します） |
 | `FACEBOOK_APP_SECRET` | 任意 | Facebook/InstagramアプリSecret（設定検証・拡張用途。未設定でも動作します） |
+| `COLLECTION_TRIGGER_TOKEN` | ✅ | 定期実行（Cloud Scheduler）/ 手動更新API の保護トークン |
+| `MANUAL_REFRESH_MIN_INTERVAL_SECONDS` | 任意 | 手動更新の最短間隔（秒、デフォルト60） |
 | `SLACK_WEBHOOK_URL` | 任意 | GitHub Actions等からSlack通知するWebhook URL（未設定の場合は通知をスキップ） |
 
 ##### GitHub Actions（Repository Secrets）
@@ -150,6 +153,13 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000
 - API Documentation: http://localhost:8000/docs
+
+## 定期実行（Cloud Scheduler 等）
+
+バックエンドに Cloud Scheduler から叩けるトリガーを用意しています。
+
+- `POST /api/v1/collection/daily`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
+- `GET /api/v1/collection/daily/status`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
 
 ## データベース
 
