@@ -161,6 +161,34 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 - `POST /api/v1/collection/daily`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
 - `GET /api/v1/collection/daily/status`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
 
+### Google Cloud Scheduler（HTTP）設定例
+
+前提：
+- バックエンド環境変数 `COLLECTION_TRIGGER_TOKEN` を設定済み（`backend/.env` / Railway Variables 等）
+
+Console（推奨）:
+- Cloud Scheduler →「ジョブを作成」
+- ターゲット：HTTP
+- URL：`https://<BACKEND_HOST>/api/v1/collection/daily`
+- メソッド：POST
+- ヘッダー：`X-Collection-Token: <COLLECTION_TRIGGER_TOKEN>`（または `Authorization: Bearer <COLLECTION_TRIGGER_TOKEN>`）
+- Body：`{}`（空でも動く想定ですが、明示しておくのが安全です）
+- タイムゾーン：`Asia/Tokyo`
+- スケジュール：例）毎日 06:00 JST → `0 6 * * *`
+- 作成後「今すぐ実行」で疎通確認
+
+`gcloud`（例）:
+```bash
+gcloud scheduler jobs create http instagram-analysis-daily \
+  --location=asia-northeast1 \
+  --schedule="0 6 * * *" \
+  --time-zone="Asia/Tokyo" \
+  --uri="https://<BACKEND_HOST>/api/v1/collection/daily" \
+  --http-method=POST \
+  --headers="X-Collection-Token=<COLLECTION_TRIGGER_TOKEN>,Content-Type=application/json" \
+  --message-body="{}"
+```
+
 ## データベース
 
 PostgreSQL (Supabase) を使用。スキーマは `supabase/migrations/` に管理し、後で `npx supabase db push` で反映できます（このリポジトリではマイグレーションの実行は行いません）。
