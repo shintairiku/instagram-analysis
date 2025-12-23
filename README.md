@@ -58,6 +58,16 @@ project-root/
 └── docker-compose.yml
 ```
 
+## develop ブランチの主な変更点（main との差分メモ）
+
+- **DBアクセス方式の移行**: SQLAlchemy中心から Supabase SDK（PostgREST）へ切替。`backend/app/core/database.py`・`backend/app/core/supabase_utils.py` を追加し、各リポジトリ/サービスをSupabaseクライアントベースに更新。
+- **収集API追加**: `POST /api/v1/collection/daily` と `GET /api/v1/collection/daily/status` を追加。`COLLECTION_TRIGGER_TOKEN` による簡易認証と同時実行ロックを実装。
+- **手動更新機能**: `POST /api/v1/collection/accounts/{account_id}/refresh` を追加し、直近投稿の同期（window_days/max_posts）と手動更新の最短間隔制限（`MANUAL_REFRESH_MIN_INTERVAL_SECONDS`）を導入。
+- **データ収集の拡張**: 直近投稿同期サービス、メトリクス正規化ユーティリティ、Instagram API の「指定日時以降の投稿取得」処理を追加。
+- **集計ロジック更新**: 日次集計に media_type 分布・data_sources のJSON保存、recorded_at のUTC統一などを反映。
+- **フロントエンド連携**: 投稿インサイト画面に「最新情報を取得」ボタンと最終更新表示を追加。Next.js API ルートでバックエンドへ安全に中継。
+- **設定/スキーマ管理**: `supabase/migrations/` に初期スキーマを追加し、`docker-compose.yml` は `env_file` 参照に変更。環境変数例に `COLLECTION_TRIGGER_TOKEN` などを追加。
+
 ## 開発環境セットアップ
 
 ### 1. 必要な環境変数の設定
