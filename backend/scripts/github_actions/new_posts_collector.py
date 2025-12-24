@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 # プロジェクトルートをパスに追加
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from app.core.database import SessionLocal
 from app.repositories.instagram_account_repository import InstagramAccountRepository
 from app.repositories.instagram_post_repository import InstagramPostRepository
 from app.repositories.instagram_post_metrics_repository import InstagramPostMetricsRepository

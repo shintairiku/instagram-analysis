@@ -1,141 +1,60 @@
 """
-Database configuration and session management
-"""
-import os
-from sqlalchemy import create_engine, MetaData, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import NullPool
-import logging
-from typing import Generator
+Supabase configuration and client management.
 
-# ログ設定
-logging.basicConfig(level=logging.INFO)
+This project intentionally avoids direct PostgreSQL connections at runtime and uses
+Supabase's official SDK instead (PostgREST / RPC).
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from typing import Generator, Optional
+
+from supabase import Client, create_client
+
 logger = logging.getLogger(__name__)
 
-# 環境変数から DATABASE_URL を取得
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres.wxsgwvbdtpeidjpmdhte:shintairiku@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
-)
-
-if not DATABASE_URL:
-    logger.error("DATABASE_URL environment variable is not set")
-    raise ValueError("DATABASE_URL environment variable is required")
-
-# SQLAlchemy エンジンの作成
-try:
-    engine = create_engine(
-        DATABASE_URL,
-        poolclass=NullPool,  # Supabase向けの設定
-        echo=False,  # SQLログを出力したい場合はTrueに
-        pool_pre_ping=True,  # 接続の健全性チェック
-        pool_recycle=3600,   # 1時間で接続をリサイクル
-        connect_args={
-            "sslmode": "require",  # SSL接続を強制
-            "connect_timeout": 10   # 接続タイムアウト
-        }
-    )
-    logger.info(f"Database engine created successfully")
-except Exception as e:
-    logger.error(f"Failed to create database engine: {str(e)}")
-    raise
-
-# セッション作成
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
-
-# Base model
-Base = declarative_base()
-
-def get_db() -> Generator[Session, None, None]:
-    """
-    データベースセッションを取得するジェネレーター
-    FastAPI の Depends で使用
-    """
-    db = SessionLocal()
-    try:
-        logger.debug("Database session created")
-        yield db
-    except Exception as e:
-        logger.error(f"Database session error: {str(e)}")
-        db.rollback()
-        raise
-    finally:
-        db.close()
-        logger.debug("Database session closed")
-
-def get_db_sync() -> Session:
-    """
-    同期処理用のデータベースセッション取得
-    スクリプトやバックグラウンドタスクで使用
-    """
-    db = SessionLocal()
-    try:
-        logger.debug("Synchronous database session created")
-        return db
-    except Exception as e:
-        logger.error(f"Failed to create synchronous database session: {str(e)}")
-        db.close()
-        raise
-
-def test_connection() -> bool:
-    """
-    データベース接続をテスト
-    Returns:
-        bool: 接続成功時は True、失敗時は False
-    """
-    try:
-        db = get_db_sync()
-        # 簡単なクエリでテスト
-        db.execute(text("SELECT 1"))
-        db.close()
-        logger.info("Database connection test successful")
-        return True
-    except Exception as e:
-        logger.error(f"Database connection test failed: {str(e)}")
-        return False
-
-def create_tables():
-    """
-    全テーブルを作成
-    主に開発・テスト環境で使用
-    """
-    try:
-        # モデルをインポートしてテーブル作成
-        from ..models.instagram_account import InstagramAccount
-        from ..models.instagram_post import InstagramPost
-        from ..models.instagram_post_metrics import InstagramPostMetrics
-        from ..models.instagram_daily_stats import InstagramDailyStats
-        from ..models.instagram_monthly_stats import InstagramMonthlyStats
-        
-        Base.metadata.create_all(bind=engine)
-        logger.info("All tables created successfully")
-    except Exception as e:
-        logger.error(f"Failed to create tables: {str(e)}")
-        raise
-
-def drop_tables():
-    """
-    全テーブルを削除
-    注意: 本番環境では使用しないこと
-    """
-    try:
-        Base.metadata.drop_all(bind=engine)
-        logger.warning("All tables dropped")
-    except Exception as e:
-        logger.error(f"Failed to drop tables: {str(e)}")
-        raise
-
-# 環境変数の追加設定
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-if not all([SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY]):
-    logger.warning("Some Supabase environment variables are missing")
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for backend runtime.")
 
-logger.info(f"Database configuration loaded - URL: {DATABASE_URL[:50]}...")
+_supabase_client: Optional[Client] = None
+
+
+def get_supabase_client() -> Client:
+    """Create (once) and return a Supabase client (service role)."""
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        logger.info("Supabase client initialized")
+    return _supabase_client
+
+
+def get_db() -> Generator[Client, None, None]:
+    """
+    Supabase client dependency for FastAPI's Depends.
+    Kept as get_db() for compatibility with existing app structure.
+    """
+    yield get_supabase_client()
+
+
+def get_db_sync() -> Client:
+    """Supabase client for scripts / background tasks."""
+    return get_supabase_client()
+
+
+def test_connection() -> bool:
+    """Test Supabase connectivity with a lightweight query."""
+    try:
+        client = get_supabase_client()
+        # NOTE: This assumes the base schema has been applied. It's ok to fail on a fresh DB.
+        client.table("instagram_accounts").select("id").limit(1).execute()
+        logger.info("Supabase connection test successful")
+        return True
+    except Exception as e:
+        logger.error(f"Supabase connection test failed: {e}")
+        return False

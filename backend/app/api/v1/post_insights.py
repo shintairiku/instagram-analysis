@@ -3,7 +3,7 @@ Post Insights API Endpoints
 投稿インサイトAPIエンドポイント
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from supabase import Client
 from typing import Optional
 from datetime import date
 import logging
@@ -48,7 +48,7 @@ async def get_post_insights(
     to_date: Optional[date] = Query(None, description="終了日付（YYYY-MM-DD）"),
     media_type: Optional[str] = Query(None, description="メディアタイプフィルター", pattern="^(IMAGE|VIDEO|CAROUSEL_ALBUM|STORY)$"),
     limit: Optional[int] = Query(None, description="最大取得件数", ge=1, le=1000),
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ):
     """投稿インサイトデータを取得"""
     try:
@@ -93,7 +93,7 @@ async def get_post_insights(
 )
 async def get_single_post_insights(
     post_id: str,
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ):
     """個別投稿のインサイト取得（将来実装）"""
     raise HTTPException(
@@ -109,7 +109,7 @@ async def get_single_post_insights(
 )
 async def get_media_type_summary(
     account_id: str = Query(..., description="アカウントID"),
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ):
     """メディアタイプ別サマリー取得（将来実装）"""
     raise HTTPException(

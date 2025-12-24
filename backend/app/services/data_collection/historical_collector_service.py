@@ -212,9 +212,10 @@ class HistoricalCollectorService:
             )
         finally:
             # リソース解放
-            if self.db:
-                self.db.close()
-                logger.debug("Database session closed")
+            self.db = None
+            self.account_repo = None
+            self.post_repo = None
+            self.post_metrics_repo = None
     
     async def _fetch_all_posts(
         self,
@@ -529,8 +530,10 @@ class HistoricalCollectorService:
                 error_message=str(e)
             )
         finally:
-            if self.db:
-                self.db.close()
+            self.db = None
+            self.account_repo = None
+            self.post_repo = None
+            self.post_metrics_repo = None
 
 # サービスインスタンス作成関数
 def create_historical_collector() -> HistoricalCollectorService:

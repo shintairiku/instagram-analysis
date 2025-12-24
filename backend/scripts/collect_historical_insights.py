@@ -164,7 +164,6 @@ async def get_target_accounts(args) -> List[str]:
         db = get_db_sync()
         repo = InstagramAccountRepository(db)
         accounts = await repo.get_active_accounts()
-        db.close()
         return [str(account.instagram_user_id) for account in accounts]
     else:
         raise ValueError("アカウントが指定されていません。")
@@ -273,28 +272,36 @@ async def collect_account_insights(
                     )
                     
                     # データベース保存
-                    stats_data = {
-                        'account_id': account.id,
-                        'stats_date': target_date,
-                        'reach': insights_data.get('reach', 0),
-                        'follower_count_change': insights_data.get('follower_count', 0),
-                        'data_sources': json.dumps(['api_insights'])
-                    }
-                    
                     if existing_stats:
-                        # 既存データの更新
-                        updated_stats = await daily_stats_repo.update(existing_stats.id, stats_data)
-                        logger.debug(f"     ✅ 更新: {target_date} - reach: {insights_data.get('reach', 0)}, follower_change: {insights_data.get('follower_count', 0)}")
+                        # 既存データの更新（現在のテーブル定義ではreach等は保持しない）
+                        update_data = {
+                            "followers_count": insights_data.get("follower_count", 0),
+                            "data_sources": json.dumps(["api_insights"], ensure_ascii=False),
+                        }
+                        await daily_stats_repo.update(existing_stats.id, update_data)
+                        logger.debug(f"     ✅ 更新: {target_date} - followers: {insights_data.get('follower_count', 0)}")
                     else:
                         # 新規データ作成
-                        new_stats = await daily_stats_repo.create(stats_data)
-                        logger.debug(f"     ✅ 新規: {target_date} - reach: {insights_data.get('reach', 0)}, follower_change: {insights_data.get('follower_count', 0)}")
+                        create_data = {
+                            "account_id": account.id,
+                            "stats_date": target_date,
+                            "followers_count": insights_data.get("follower_count", 0),
+                            "following_count": 0,
+                            "media_count": 0,
+                            "posts_count": 0,
+                            "total_likes": 0,
+                            "total_comments": 0,
+                            "media_type_distribution": "{}",
+                            "data_sources": json.dumps(["api_insights"], ensure_ascii=False),
+                        }
+                        await daily_stats_repo.create(create_data)
+                        logger.debug(f"     ✅ 新規: {target_date} - followers: {insights_data.get('follower_count', 0)}")
                     
                     result.success_days += 1
                     result.collected_insights.append({
                         'date': target_date.isoformat(),
                         'reach': insights_data.get('reach', 0),
-                        'follower_count_change': insights_data.get('follower_count', 0)
+                        'follower_count': insights_data.get('follower_count', 0)
                     })
                     
                     # API制限対応：呼び出し間隔
@@ -303,8 +310,6 @@ async def collect_account_insights(
                 except Exception as e:
                     logger.warning(f"     ❌ 失敗: {target_date} - {str(e)}")
                     result.failed_days += 1
-        
-        db.close()
         
         result.completed_at = datetime.now()
         result.duration_seconds = (result.completed_at - result.started_at).total_seconds()

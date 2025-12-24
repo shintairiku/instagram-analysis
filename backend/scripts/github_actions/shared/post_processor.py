@@ -42,18 +42,13 @@ class PostProcessor:
                 'posted_at': posted_at
             }
             
-            # データベース保存
-            from app.core.database import SessionLocal
-            db = SessionLocal()
-            try:
-                post_repo = InstagramPostRepository(db)
-                saved_post = await post_repo.create(post_create_data)
-                
-                self.logger.info(f"📝 Saved post data: {post_data['id']}")
-                return saved_post
-                
-            finally:
-                db.close()
+            from app.core.database import get_db_sync
+            supabase = get_db_sync()
+            post_repo = InstagramPostRepository(supabase)
+            saved_post = await post_repo.create(post_create_data)
+
+            self.logger.info(f"📝 Saved post data: {post_data['id']}")
+            return saved_post
                 
         except Exception as e:
             self.logger.error(f"Failed to save post data {post_data.get('id', 'unknown')}: {e}")
@@ -82,18 +77,13 @@ class PostProcessor:
                 'recorded_at': datetime.now()
             }
             
-            # データベース保存
-            from app.core.database import SessionLocal
-            db = SessionLocal()
-            try:
-                metrics_repo = InstagramPostMetricsRepository(db)
-                await metrics_repo.create(metrics_data)
-                
-                self.logger.info(f"📊 Saved post insights: {post_id}")
-                return True
-                
-            finally:
-                db.close()
+            from app.core.database import get_db_sync
+            supabase = get_db_sync()
+            metrics_repo = InstagramPostMetricsRepository(supabase)
+            await metrics_repo.create(metrics_data)
+
+            self.logger.info(f"📊 Saved post insights: {post_id}")
+            return True
                 
         except Exception as e:
             self.logger.error(f"Failed to save post insights for {post_id}: {e}")

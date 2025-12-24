@@ -6,7 +6,7 @@ verification/about-daily-stats の知見を活用した実装
 import aiohttp
 import asyncio
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Dict, Any, List, Optional
 import logging
 from urllib.parse import urlencode
@@ -251,6 +251,80 @@ class InstagramAPIClient:
         except InstagramAPIError as e:
             logger.error(f"Failed to fetch posts for user {instagram_user_id}, date {target_date}: {str(e)}")
             # 投稿データ取得失敗時は空リストを返す
+            return []
+
+    async def get_posts_since(
+        self,
+        instagram_user_id: str,
+        access_token: str,
+        since_datetime: datetime,
+        max_posts: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        指定日時以降の投稿データ取得（ページング対応・新しい順）。
+
+        Args:
+            instagram_user_id: Instagram User ID
+            access_token: アクセストークン（平文）
+            since_datetime: これ以降の投稿のみ返す（timezone-aware推奨）
+            max_posts: 最大取得件数（安全のため上限）
+        """
+        if since_datetime.tzinfo is None:
+            since_datetime = since_datetime.replace(tzinfo=timezone.utc)
+
+        url = self.config.get_user_media_url(instagram_user_id)
+        per_page = min(self.config.MAX_POSTS_LIMIT, max(1, max_posts))
+
+        params = {
+            "fields": self.config.get_media_fields(),
+            "access_token": access_token,
+            "limit": per_page,
+        }
+
+        collected: list[dict] = []
+        next_url: Optional[str] = url
+        next_params: Dict[str, Any] = params
+
+        try:
+            logger.info(
+                f"Fetching recent posts for user: {instagram_user_id}, since={since_datetime.isoformat()}, max_posts={max_posts}"
+            )
+
+            while next_url and len(collected) < max_posts:
+                data = await self._make_request(next_url, next_params)
+                batch = data.get("data", []) or []
+
+                stop = False
+                for post in batch:
+                    timestamp = post.get("timestamp")
+                    if not timestamp:
+                        continue
+                    try:
+                        post_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    except ValueError:
+                        continue
+
+                    if post_dt < since_datetime:
+                        # 新しい順なので、ここ以降は全て古い
+                        stop = True
+                        break
+
+                    collected.append(post)
+                    if len(collected) >= max_posts:
+                        break
+
+                if stop or len(collected) >= max_posts:
+                    break
+
+                paging = data.get("paging", {}) or {}
+                next_url = paging.get("next")
+                next_params = {}  # next URL にはクエリが含まれるため
+
+            logger.info(f"Successfully fetched recent posts - {len(collected)} posts collected")
+            return collected
+
+        except InstagramAPIError as e:
+            logger.error(f"Failed to fetch recent posts for user {instagram_user_id}: {str(e)}")
             return []
     
     async def get_post_insights(

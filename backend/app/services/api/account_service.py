@@ -3,12 +3,13 @@ Account Service
 アカウント管理用のビジネスロジック層
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, date
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
+from supabase import Client
 
-from ...models.instagram_account import InstagramAccount
 from ...repositories.instagram_account_repository import InstagramAccountRepository
+from ...repositories.instagram_daily_stats_repository import InstagramDailyStatsRepository
+from ...repositories.instagram_post_repository import InstagramPostRepository
 from ...schemas.instagram_account_schema import (
     AccountListResponse,
     AccountDetailResponse,
@@ -23,9 +24,11 @@ logger = logging.getLogger(__name__)
 class AccountService:
     """アカウント管理サービス"""
     
-    def __init__(self, db: Session):
-        self.db = db
-        self.account_repo = InstagramAccountRepository(db)
+    def __init__(self, supabase: Client):
+        self.supabase = supabase
+        self.account_repo = InstagramAccountRepository(supabase)
+        self.post_repo = InstagramPostRepository(supabase)
+        self.daily_stats_repo = InstagramDailyStatsRepository(supabase)
     
     async def get_accounts(
         self, 
@@ -103,10 +106,10 @@ class AccountService:
             # 詳細レスポンスに変換
             detail_response = AccountDetailResponse(
                 **account_data.dict(),
-                facebook_page_id=account.facebook_page_id
+                facebook_page_id=account.get("facebook_page_id")
             )
             
-            logger.info(f"Successfully retrieved account details for: {account.username}")
+            logger.info(f"Successfully retrieved account details for: {account.get('username')}")
             return detail_response
             
         except Exception as e:
@@ -136,22 +139,22 @@ class AccountService:
             is_valid, days_until_expiry, warning_level = self._check_token_validity(account)
             
             response = TokenValidationResponse(
-                account_id=account.id,
+                account_id=account.get("id"),
                 is_valid=is_valid,
-                expires_at=account.token_expires_at,
+                expires_at=self._parse_datetime(account.get("token_expires_at")),
                 days_until_expiry=days_until_expiry,
                 warning_level=warning_level,
                 needs_refresh=warning_level in ['critical', 'expired']
             )
             
-            logger.info(f"Token validation result for {account.username}: {warning_level}")
+            logger.info(f"Token validation result for {account.get('username')}: {warning_level}")
             return response
             
         except Exception as e:
             logger.error(f"Failed to validate token: {str(e)}", exc_info=True)
             raise
 
-    async def get_accounts_needing_refresh(self, days_threshold: int = 7) -> List[InstagramAccount]:
+    async def get_accounts_needing_refresh(self, days_threshold: int = 7) -> List[dict]:
         """
         リフレッシュが必要なアカウント取得
         
@@ -170,7 +173,53 @@ class AccountService:
             logger.error(f"Failed to get accounts needing refresh: {str(e)}", exc_info=True)
             raise
 
-    async def _get_account_by_id_or_instagram_id(self, account_id: str) -> Optional[InstagramAccount]:
+    async def check_tokens_health(self, days_threshold: int = 7) -> dict:
+        """全アカウントのトークン状態をサマリー化（account-setup/status 用）。"""
+        expiring_accounts = await self.get_accounts_needing_refresh(days_threshold)
+        all_accounts = await self.get_accounts(active_only=False, include_metrics=False)
+
+        total_accounts = all_accounts.total
+        active_accounts = all_accounts.active_count
+        expiring_count = len(expiring_accounts)
+
+        warning_levels = {"none": 0, "warning": 0, "critical": 0, "expired": 0}
+        for account in all_accounts.accounts:
+            if account.is_token_valid:
+                if account.days_until_expiry is None:
+                    warning_levels["none"] += 1
+                elif account.days_until_expiry <= 1:
+                    warning_levels["critical"] += 1
+                elif account.days_until_expiry <= 7:
+                    warning_levels["warning"] += 1
+                else:
+                    warning_levels["none"] += 1
+            else:
+                warning_levels["expired"] += 1
+
+        return {
+            "overall_health": "healthy"
+            if expiring_count == 0
+            else "warning"
+            if expiring_count < 3
+            else "critical",
+            "summary": {
+                "total_accounts": total_accounts,
+                "active_accounts": active_accounts,
+                "accounts_needing_refresh": expiring_count,
+                "warning_levels": warning_levels,
+            },
+            "expiring_accounts": [
+                {
+                    "id": str(acc.get("id")),
+                    "username": acc.get("username"),
+                    "expires_at": acc.get("token_expires_at"),
+                }
+                for acc in expiring_accounts
+            ],
+            "checked_at": datetime.now().isoformat(),
+        }
+
+    async def _get_account_by_id_or_instagram_id(self, account_id: str) -> Optional[dict]:
         """UUIDまたはInstagram User IDでアカウント取得"""
         try:
             # まずInstagram User IDで検索
@@ -192,7 +241,7 @@ class AccountService:
 
     async def _convert_to_account_response(
         self, 
-        account: InstagramAccount, 
+        account: dict,
         include_metrics: bool = False
     ) -> InstagramAccountWithStats:
         """
@@ -211,16 +260,16 @@ class AccountService:
             
             # 基本データ
             account_data = {
-                "id": account.id,
-                "instagram_user_id": account.instagram_user_id,
-                "username": account.username,
-                "account_name": account.account_name,
-                "profile_picture_url": account.profile_picture_url,
-                "facebook_page_id": account.facebook_page_id,
-                "is_active": account.is_active,
-                "token_expires_at": account.token_expires_at,
-                "created_at": account.created_at,
-                "updated_at": account.updated_at,
+                "id": account.get("id"),
+                "instagram_user_id": account.get("instagram_user_id"),
+                "username": account.get("username"),
+                "account_name": account.get("account_name"),
+                "profile_picture_url": account.get("profile_picture_url"),
+                "facebook_page_id": account.get("facebook_page_id"),
+                "is_active": account.get("is_active", True),
+                "token_expires_at": self._parse_datetime(account.get("token_expires_at")),
+                "created_at": self._parse_datetime(account.get("created_at")) or datetime.now(),
+                "updated_at": self._parse_datetime(account.get("updated_at")) or datetime.now(),
                 "is_token_valid": is_valid,
                 "days_until_expiry": days_until_expiry,
             }
@@ -245,18 +294,19 @@ class AccountService:
             logger.error(f"Failed to convert account to response: {str(e)}")
             raise
 
-    def _check_token_validity(self, account: InstagramAccount) -> tuple[bool, Optional[int], str]:
+    def _check_token_validity(self, account: dict) -> tuple[bool, Optional[int], str]:
         """
         トークン有効性チェック
         
         Returns:
             (is_valid, days_until_expiry, warning_level)
         """
-        if not account.token_expires_at:
+        expires_at = self._parse_datetime(account.get("token_expires_at"))
+        if not expires_at:
             return True, None, "none"  # 期限未設定は有効とみなす
         
         now = datetime.now()
-        expires_at = account.token_expires_at.replace(tzinfo=None) if account.token_expires_at.tzinfo else account.token_expires_at
+        expires_at = expires_at.replace(tzinfo=None) if expires_at.tzinfo else expires_at
         
         if expires_at <= now:
             return False, 0, "expired"
@@ -270,7 +320,7 @@ class AccountService:
         else:
             return True, days_until_expiry, "none"
 
-    async def _calculate_account_metrics(self, account: InstagramAccount) -> Dict[str, Any]:
+    async def _calculate_account_metrics(self, account: dict) -> Dict[str, Any]:
         """
         アカウント統計情報計算
         
@@ -281,24 +331,23 @@ class AccountService:
             統計情報辞書
         """
         try:
-            # TODO: 実際の統計計算ロジックを実装
-            # 現在は仮の実装
-            
-            # 投稿数を計算（posts テーブルから）
-            from ...models.instagram_post import InstagramPost
-            total_posts = (
-                self.db.query(InstagramPost)
-                .filter(InstagramPost.account_id == account.id)
-                .count()
-            )
-            
-            # その他の統計は将来的に daily_stats テーブルから取得
+            account_id = account.get("id")
+            total_posts = await self.post_repo.count_by_account(account_id)
+
+            latest_stats = await self.daily_stats_repo.get_latest_by_account(account_id)
+
             return {
-                "latest_follower_count": None,  # TODO: 最新のフォロワー数
-                "latest_following_count": None,  # TODO: 最新のフォロー数
+                "latest_follower_count": latest_stats.get("followers_count") if latest_stats else None,
+                "latest_following_count": latest_stats.get("following_count") if latest_stats else None,
                 "total_posts": total_posts,
-                "data_quality_score": None,  # TODO: データ品質スコア
-                "last_synced_at": None,  # TODO: 最終同期時刻
+                "data_quality_score": (
+                    await self.daily_stats_repo.get_data_quality_score(
+                        account_id, date.fromisoformat(latest_stats["stats_date"])
+                    )
+                    if latest_stats and latest_stats.get("stats_date")
+                    else None
+                ),
+                "last_synced_at": self._parse_datetime(account.get("last_synced_at")),
             }
             
         except Exception as e:
@@ -312,8 +361,21 @@ class AccountService:
                 "last_synced_at": None,
             }
 
+    def _parse_datetime(self, value: Any) -> Optional[datetime]:
+        """Supabaseの戻り値（ISO文字列/ datetime / None）を datetime に正規化。"""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
+
 
 # サービスインスタンス作成関数
-def create_account_service(db: Session) -> AccountService:
+def create_account_service(db: Client) -> AccountService:
     """Account Service インスタンス作成"""
     return AccountService(db)

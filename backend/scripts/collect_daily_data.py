@@ -184,7 +184,7 @@ async def main():
     setup_logging(args.verbose)
     
     # 環境変数チェック
-    required_env_vars = ['DATABASE_URL']
+    required_env_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
     missing_vars = [var for var in required_env_vars if not os.getenv(var)]
     if missing_vars:
         logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")

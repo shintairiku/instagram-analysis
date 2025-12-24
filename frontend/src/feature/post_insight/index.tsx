@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { Calendar as CalendarIcon, AlertCircle, Loader2 } from "lucide-react";
 import { DateRange } from "react-day-picker";
 import { PostInsightTable } from "./components/PostInsightTable";
@@ -20,23 +20,45 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+const JST_TIME_ZONE = "Asia/Tokyo";
+
+function toJstYmd(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: JST_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function formatJstMdHm(iso: string): string {
+  const d = new Date(iso);
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: JST_TIME_ZONE,
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+}
+
 export default function PostInsight() {
-  // デフォルトを先月に設定（useCallbackでメモ化）
-  const getLastMonth = useCallback(() => {
+  // デフォルト期間：日本時間の「本日」〜「1ヶ月前」
+  const getDefaultJstRange = useCallback((): DateRange => {
     const now = new Date();
-    const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-    return {
-      from: firstDayOfLastMonth,
-      to: lastDayOfLastMonth
-    };
+    const [y, m, d] = toJstYmd(now).split("-").map(Number);
+    const jstToday = new Date(y, (m || 1) - 1, d || 1);
+    return { from: subMonths(jstToday, 1), to: jstToday };
   }, []);
 
-  const [date, setDate] = useState<DateRange | undefined>(() => getLastMonth());
+  const [date, setDate] = useState<DateRange | undefined>(() => getDefaultJstRange());
   const [selectedType, setSelectedType] = useState<ContentType>("All");
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   // 選択されたアカウントを取得
-  const { selectedAccount } = useAccount();
+  const { selectedAccount, refreshAccounts } = useAccount();
 
   // APIからデータを取得（期間フィルタなし）
   const {
@@ -64,19 +86,13 @@ export default function PostInsight() {
       filtered = filterByMediaType(selectedType as MediaType);
     }
 
-    // 日付フィルタ（フロントエンド側で実行）
+    // 日付フィルタ（日本時間で比較）
     if (date?.from && date?.to) {
+      const fromYmd = toJstYmd(date.from);
+      const toYmd = toJstYmd(date.to);
       filtered = filtered.filter(post => {
-        const postDate = new Date(post.date);
-        const fromDate = new Date(date.from!);
-        const toDate = new Date(date.to!);
-        
-        // 時間を00:00:00に正規化
-        fromDate.setHours(0, 0, 0, 0);
-        toDate.setHours(23, 59, 59, 999);
-        postDate.setHours(0, 0, 0, 0);
-        
-        return postDate >= fromDate && postDate <= toDate;
+        const postYmd = toJstYmd(new Date(post.date));
+        return postYmd >= fromYmd && postYmd <= toYmd;
       });
     }
 
@@ -84,6 +100,40 @@ export default function PostInsight() {
   };
 
   const filteredData = getFilteredData();
+
+  const handleManualRefresh = useCallback(async () => {
+    if (!selectedAccount?.instagram_user_id) return;
+    setRefreshing(true);
+    setRefreshError(null);
+
+    try {
+      const res = await fetch(
+        `/api/collection/accounts/${encodeURIComponent(
+          selectedAccount.instagram_user_id
+        )}/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ window_days: 30, max_posts: 50 }),
+        }
+      );
+
+      const data = (await res.json().catch(() => ({}))) as { detail?: string };
+
+      if (!res.ok) {
+        const retryAfter = res.headers.get("Retry-After");
+        const suffix = retryAfter ? `（${retryAfter}秒後に再実行できます）` : "";
+        throw new Error(`${data.detail ?? "更新に失敗しました"}${suffix}`);
+      }
+
+      await refreshAccounts();
+      await refresh();
+    } catch (e) {
+      setRefreshError(e instanceof Error ? e.message : "更新に失敗しました");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refresh, refreshAccounts, selectedAccount?.instagram_user_id]);
 
   return (
     <div className="space-y-6 p-6">
@@ -96,13 +146,27 @@ export default function PostInsight() {
               @{apiData.meta.username} ({filteredData.length}件 / 全{apiData.meta.total_posts}件の投稿)
             </p>
           )}
+          {selectedAccount?.last_synced_at && (
+            <p className="text-xs text-muted-foreground mt-1">
+              最終更新: {formatJstMdHm(selectedAccount.last_synced_at)}（JST）
+            </p>
+          )}
         </div>
         
         {/* フィルター */}
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+          <Button
+            variant="secondary"
+            onClick={handleManualRefresh}
+            disabled={!selectedAccount || refreshing}
+          >
+            {refreshing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            最新情報を取得
+          </Button>
+
           {/* 日付範囲選択 */}
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">期間:</span>
+            <span className="text-sm font-medium">期間（JST）:</span>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -185,6 +249,17 @@ export default function PostInsight() {
                 再試行
               </Button>
             </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      {refreshError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex justify-between items-center">
+            <span>{refreshError}</span>
+            <Button variant="outline" size="sm" onClick={() => setRefreshError(null)}>
+              閉じる
+            </Button>
           </AlertDescription>
         </Alert>
       )}

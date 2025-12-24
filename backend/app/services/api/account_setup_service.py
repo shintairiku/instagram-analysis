@@ -6,10 +6,9 @@ import logging
 import requests
 from typing import List, Optional, Tuple
 from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 
-from ...models.instagram_account import InstagramAccount
+from supabase import Client
+
 from ...schemas.account_setup_schema import (
     AccountSetupRequest,
     AccountSetupResponse,
@@ -18,7 +17,7 @@ from ...schemas.account_setup_schema import (
     FacebookPageInfo,
     InstagramAccountDetails
 )
-from ...schemas.instagram_account_schema import InstagramAccountCreate, InstagramAccountResponse
+from ...schemas.instagram_account_schema import InstagramAccountResponse
 from ...repositories.instagram_account_repository import InstagramAccountRepository
 
 logger = logging.getLogger(__name__)
@@ -27,9 +26,9 @@ logger = logging.getLogger(__name__)
 class AccountSetupService:
     """アカウントセットアップサービス"""
     
-    def __init__(self, db: Session):
-        self.db = db
-        self.account_repository = InstagramAccountRepository(db)
+    def __init__(self, supabase: Client):
+        self.supabase = supabase
+        self.account_repository = InstagramAccountRepository(supabase)
     
     async def setup_accounts(self, request: AccountSetupRequest) -> AccountSetupResponse:
         """
@@ -354,30 +353,25 @@ class AccountSetupService:
             
             # レスポンス用にマッピング
             return InstagramAccountResponse(
-                id=created_account.id,
-                instagram_user_id=created_account.instagram_user_id,
-                username=created_account.username,
-                account_name=created_account.account_name,
-                profile_picture_url=created_account.profile_picture_url,
-                facebook_page_id=created_account.facebook_page_id,
-                is_active=created_account.is_active,
-                token_expires_at=created_account.token_expires_at,
-                created_at=created_account.created_at,
-                updated_at=created_account.updated_at,
+                id=created_account.get("id"),
+                instagram_user_id=created_account.get("instagram_user_id"),
+                username=created_account.get("username"),
+                account_name=created_account.get("account_name"),
+                profile_picture_url=created_account.get("profile_picture_url"),
+                facebook_page_id=created_account.get("facebook_page_id"),
+                is_active=created_account.get("is_active", True),
+                token_expires_at=created_account.get("token_expires_at"),
+                created_at=created_account.get("created_at"),
+                updated_at=created_account.get("updated_at"),
                 is_token_valid=True,
                 days_until_expiry=(token_expires_at - datetime.now()).days if token_expires_at else None
             )
             
-        except IntegrityError as e:
-            logger.error(f"Integrity error creating account {discovered.username}: {str(e)}")
-            self.db.rollback()
-            return None
         except Exception as e:
             logger.error(f"Error creating account {discovered.username}: {str(e)}")
-            self.db.rollback()
             return None
     
-    async def _update_existing_account(self, existing_account: InstagramAccount, discovered: DiscoveredAccount, token_result: TokenExchangeResult) -> None:
+    async def _update_existing_account(self, existing_account: dict, discovered: DiscoveredAccount, token_result: TokenExchangeResult) -> None:
         """既存アカウントを更新"""
         try:
             # トークン有効期限を計算
@@ -390,24 +384,22 @@ class AccountSetupService:
                 token_expires_at = datetime.now() + timedelta(days=60)
                 logger.info(f"Updating existing account with default 60-day expiration")
             
-            # 必要なフィールドを更新
-            existing_account.username = discovered.username
-            existing_account.account_name = discovered.account_name
-            existing_account.profile_picture_url = discovered.profile_picture_url
-            existing_account.access_token_encrypted = discovered.access_token
-            existing_account.token_expires_at = token_expires_at
-            existing_account.facebook_page_id = discovered.facebook_page_id
-            existing_account.is_active = True
-            existing_account.updated_at = datetime.now()
-            
-            self.db.commit()
+            update_data = {
+                "username": discovered.username,
+                "account_name": discovered.account_name,
+                "profile_picture_url": discovered.profile_picture_url,
+                "access_token_encrypted": discovered.access_token,
+                "token_expires_at": token_expires_at,
+                "facebook_page_id": discovered.facebook_page_id,
+                "is_active": True,
+            }
+            await self.account_repository.update(str(existing_account.get("id")), update_data)
             
         except Exception as e:
             logger.error(f"Error updating account {discovered.username}: {str(e)}")
-            self.db.rollback()
             raise
 
 
-def create_account_setup_service(db: Session) -> AccountSetupService:
+def create_account_setup_service(db: Client) -> AccountSetupService:
     """アカウントセットアップサービスのファクトリ"""
     return AccountSetupService(db)

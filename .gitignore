@@ -59,3 +59,9 @@ htmlcov/
 
 # Docker
 docker-compose.override.yml
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+supabase/.local/
+.supabase/

@@ -16,6 +16,7 @@ from ...repositories.instagram_post_repository import InstagramPostRepository
 from ...repositories.instagram_post_metrics_repository import InstagramPostMetricsRepository
 from .instagram_api_client import InstagramAPIClient, InstagramAPIError
 from .data_aggregator_service import DataAggregatorService
+from .metrics_utils import normalize_post_metrics_for_db
 
 # ログ設定
 logger = logging.getLogger(__name__)
@@ -161,9 +162,11 @@ class DailyCollectorService:
             raise
         finally:
             # リソース解放
-            if self.db:
-                self.db.close()
-                logger.debug("Database session closed")
+            self.db = None
+            self.account_repo = None
+            self.daily_stats_repo = None
+            self.post_repo = None
+            self.post_metrics_repo = None
     
     async def _get_target_accounts(self, account_filter: Optional[List[str]] = None) -> List:
         """
@@ -349,6 +352,7 @@ class DailyCollectorService:
                             target_date
                         )
                         if post_metrics:
+                            post_metrics = normalize_post_metrics_for_db(post_metrics)
                             post_metrics['post_id'] = saved_post.id
                             await self.post_metrics_repo.create_or_update_daily(post_metrics)
                     except Exception as e:

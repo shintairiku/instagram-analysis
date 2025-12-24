@@ -2,8 +2,9 @@
 Data Aggregator Service
 API から取得した生データを DB 保存用に集約・変換するサービス
 """
+import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time, timezone
 from typing import Dict, Any, List, Optional
 
 # ログ設定
@@ -14,7 +15,7 @@ class DataAggregatorService:
     
     def aggregate_daily_stats(
         self,
-        account_id: int,
+        account_id: str,
         target_date: date,
         basic_data: Dict[str, Any],
         insights_data: Dict[str, Any],
@@ -43,8 +44,7 @@ class DataAggregatorService:
             following_count = basic_data.get('follows_count', 0)
             media_count = basic_data.get('media_count', 0)
             
-            # インサイト指標
-            reach = insights_data.get('reach', 0)
+            # インサイト指標（followers_countがbasicで取れない場合のフォールバック）
             follower_count_insights = insights_data.get('follower_count', 0)
             
             # フォロワー数の値を決定（basicデータを優先、fallbackでinsights）
@@ -53,38 +53,27 @@ class DataAggregatorService:
             # 投稿関連の集約
             posts_stats = self._aggregate_posts_stats(posts_data)
             
-            # 日次統計データ構築（モデルのフィールド名に合わせて修正）
+            media_type_distribution = posts_stats.get("media_type_distribution", {})
+            data_sources = []
+            if basic_data:
+                data_sources.append("basic_fields")
+            if insights_data:
+                data_sources.append("insights_api")
+            if posts_data is not None:
+                data_sources.append("posts_api")
+
+            # 日次統計データ（現在のテーブル定義に合わせる）
             daily_stats = {
-                # 基本情報
-                'account_id': account_id,
-                'stats_date': target_date,  # recorded_at → stats_date
-                
-                # アカウント基本指標（モデルのフィールド名に合わせて）
-                'followers_count': final_follower_count,  # follower_count → followers_count
-                'following_count': following_count,
-                
-                # インサイト指標
-                'reach': reach,
-                'follower_count_change': 0,  # 成長計算は後で実装
-                
-                # 投稿関連指標
-                'posts_count': posts_stats['posts_count'],
-                'total_likes': posts_stats['total_likes'],
-                'total_comments': posts_stats['total_comments'],
-                
-                # 平均値
-                'avg_likes_per_post': self._calculate_avg_per_post(
-                    posts_stats['total_likes'],
-                    posts_stats['posts_count']
-                ),
-                'avg_comments_per_post': self._calculate_avg_per_post(
-                    posts_stats['total_comments'],
-                    posts_stats['posts_count']
-                ),
-                
-                # メタデータ（JSON文字列として保存）
-                'data_sources': '["basic_fields", "insights_api"]',
-                'media_type_distribution': '{}'  # 後で実装
+                "account_id": account_id,
+                "stats_date": target_date,
+                "followers_count": final_follower_count,
+                "following_count": following_count,
+                "media_count": media_count,
+                "posts_count": posts_stats["posts_count"],
+                "total_likes": posts_stats["total_likes"],
+                "total_comments": posts_stats["total_comments"],
+                "media_type_distribution": json.dumps(media_type_distribution, ensure_ascii=False),
+                "data_sources": json.dumps(data_sources, ensure_ascii=False),
             }
             
             logger.debug(f"Daily stats aggregated successfully - Posts: {posts_stats['posts_count']}, Followers: {final_follower_count}")
@@ -111,7 +100,8 @@ class DataAggregatorService:
                 'total_comments': 0,
                 'total_shares': 0,
                 'total_saves': 0,
-                'total_video_views': 0
+                'total_video_views': 0,
+                "media_type_distribution": {},
             }
         
         stats = {
@@ -120,13 +110,17 @@ class DataAggregatorService:
             'total_comments': 0,
             'total_shares': 0,
             'total_saves': 0,
-            'total_video_views': 0
+            'total_video_views': 0,
+            "media_type_distribution": {},
         }
         
         for post in posts_data:
             # 基本メトリクス（投稿データから取得可能）
             stats['total_likes'] += post.get('like_count', 0)
             stats['total_comments'] += post.get('comments_count', 0)
+            
+            media_type = post.get("media_type") or "UNKNOWN"
+            stats["media_type_distribution"][media_type] = stats["media_type_distribution"].get(media_type, 0) + 1
             
             # その他のメトリクスはインサイトAPIから取得が必要
             # ここではデフォルト値を設定
@@ -227,7 +221,7 @@ class DataAggregatorService:
         
         return round(min(score, max_score), 2)
     
-    def extract_post_info(self, post_data: Dict[str, Any], account_id: int) -> Dict[str, Any]:
+    def extract_post_info(self, post_data: Dict[str, Any], account_id: str) -> Dict[str, Any]:
         """
         投稿データから投稿情報を抽出
         
@@ -291,7 +285,7 @@ class DataAggregatorService:
         try:
             metrics = {
                 'post_id': None,  # 保存時に設定
-                'recorded_at': target_date,
+                'recorded_at': datetime.combine(target_date, time.min).replace(tzinfo=timezone.utc),
                 'likes': insights_data.get('likes', 0),
                 'comments': insights_data.get('comments', 0),
                 'shares': insights_data.get('shares', 0),
@@ -418,7 +412,7 @@ def test_data_aggregation():
     try:
         # 日次統計集約テスト
         daily_stats = aggregator.aggregate_daily_stats(
-            account_id=1,
+            account_id="account_uuid_dummy",
             target_date=date(2024, 1, 20),
             basic_data=sample_basic_data,
             insights_data=sample_insights_data,
@@ -427,18 +421,17 @@ def test_data_aggregation():
         )
         
         print(f"Daily Stats Aggregation Test:")
-        print(f"  Follower Count: {daily_stats['follower_count']}")
+        print(f"  Followers: {daily_stats['followers_count']}")
         print(f"  Posts Count: {daily_stats['posts_count']}")
         print(f"  Total Likes: {daily_stats['total_likes']}")
-        print(f"  Engagement Rate: {daily_stats['engagement_rate']}%")
-        print(f"  Data Quality Score: {daily_stats['data_quality_score']}")
+        print(f"  Media Type Distribution: {daily_stats['media_type_distribution']}")
         
         # 投稿情報抽出テスト
-        post_info = aggregator.extract_post_info(sample_posts_data[0], 1)
+        post_info = aggregator.extract_post_info(sample_posts_data[0], "account_uuid_dummy")
         print(f"\nPost Info Extraction Test:")
         print(f"  Instagram Post ID: {post_info['instagram_post_id']}")
         print(f"  Media Type: {post_info['media_type']}")
-        print(f"  Like Count: {post_info['like_count']}")
+        print(f"  Posted At: {post_info['posted_at']}")
         
         print("\nData aggregation test completed successfully")
         

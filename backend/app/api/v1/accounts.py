@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from supabase import Client
 
 from ...core.database import get_db
 from ...services.api.account_service import create_account_service, AccountService
@@ -46,7 +46,7 @@ async def options_accounts():
 async def get_accounts(
     active_only: bool = Query(True, description="アクティブアカウントのみ取得"),
     include_metrics: bool = Query(False, description="統計情報を含む"),
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> AccountListResponse:
     """
     アカウント一覧取得
@@ -81,7 +81,7 @@ async def get_accounts(
 )
 async def get_account_details(
     account_id: str,
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> AccountDetailResponse:
     """
     アカウント詳細取得
@@ -120,7 +120,7 @@ async def get_account_details(
 )
 async def validate_account_token(
     account_id: str,
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> TokenValidationResponse:
     """
     トークン有効性確認
@@ -161,7 +161,7 @@ async def validate_account_token(
 )
 async def get_account_status(
     account_id: str,
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> dict:
     """
     アカウント状態確認
@@ -227,7 +227,7 @@ async def get_account_status(
 )
 async def check_tokens_health(
     days_threshold: int = Query(7, description="警告する期限切れまでの日数"),
-    db: Session = Depends(get_db)
+    db: Client = Depends(get_db)
 ) -> dict:
     """
     トークン健全性チェック
@@ -279,10 +279,17 @@ async def check_tokens_health(
             },
             "expiring_accounts": [
                 {
-                    "id": str(acc.id),
-                    "username": acc.username,
-                    "days_until_expiry": (acc.token_expires_at - datetime.now()).days if acc.token_expires_at else None,
-                    "expires_at": acc.token_expires_at,
+                    "id": str(acc.get("id")),
+                    "username": acc.get("username"),
+                    "days_until_expiry": (
+                        (
+                            datetime.fromisoformat(str(acc.get("token_expires_at")).replace("Z", "+00:00")).replace(tzinfo=None)
+                            - datetime.now()
+                        ).days
+                        if acc.get("token_expires_at")
+                        else None
+                    ),
+                    "expires_at": acc.get("token_expires_at"),
                 }
                 for acc in expiring_accounts
             ],
