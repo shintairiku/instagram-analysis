@@ -8,9 +8,13 @@ type RefreshRequestBody = {
 
 export async function POST(
   req: NextRequest,
-  context: { params: { accountId: string } }
+  context: { params: Promise<{ accountId: string | string[] | undefined }> }
 ) {
-  const { accountId } = context.params;
+  const { accountId } = await context.params;
+  const accountIdStr = Array.isArray(accountId) ? accountId[0] : accountId;
+  if (!accountIdStr) {
+    return NextResponse.json({ detail: "accountId is required" }, { status: 400 });
+  }
 
   const backendBaseUrl =
     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -32,7 +36,7 @@ export async function POST(
 
   const upstream = await fetch(
     `${backendBaseUrl}/api/v1/collection/accounts/${encodeURIComponent(
-      accountId
+      accountIdStr
     )}/refresh`,
     {
       method: "POST",
