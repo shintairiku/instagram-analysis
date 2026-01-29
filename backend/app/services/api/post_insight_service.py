@@ -9,6 +9,7 @@ import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 from supabase import Client
 
@@ -228,6 +229,33 @@ class PostInsightService:
 
     def _get_thumbnail_url(self, post: Record) -> str:
         return post.get("thumbnail_url") or post.get("media_url") or ""
+
+    def _extract_instagram_cdn_expiry(self, url: str) -> Optional[datetime]:
+        if not url:
+            return None
+        try:
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            oe = (qs.get("oe") or qs.get("_nc_oe") or [None])[0]
+            if not oe:
+                return None
+            # Instagram CDN の `oe` は hex の epoch 秒（例: 6975142D）
+            expiry_ts = int(oe, 16)
+            return datetime.fromtimestamp(expiry_ts, tz=timezone.utc)
+        except Exception:
+            return None
+
+    def _should_refresh_media_url(self, post: Record) -> bool:
+        url = (post.get("thumbnail_url") or post.get("media_url") or "").strip()
+        if not url:
+            return True
+
+        expiry = self._extract_instagram_cdn_expiry(url)
+        if not expiry:
+            return False
+
+        now = datetime.now(timezone.utc)
+        return expiry <= now + self._MEDIA_URL_REFRESH_LEEWAY
 
     async def _refresh_media_urls_from_latest_posts(
         self,
