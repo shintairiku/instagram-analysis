@@ -29,8 +29,7 @@ export function PostInsightChart({ data }: PostInsightChartProps) {
     }
   };
 
-  const chartData = data.map((post, index) => ({
-    post: `投稿${index + 1}`,
+  const chartData = data.map((post) => ({
     date: new Date(post.date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }),
     いいね: post.likes,
     コメント: post.comments,
@@ -83,7 +82,7 @@ export function PostInsightChart({ data }: PostInsightChartProps) {
             >
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               <XAxis 
-                dataKey="post" 
+                dataKey="date" 
                 className="text-sm"
                 tick={{ fontSize: 12 }}
                 angle={-45}
