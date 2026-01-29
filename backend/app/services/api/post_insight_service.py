@@ -5,6 +5,7 @@ Post Insight Service
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -14,6 +15,7 @@ from supabase import Client
 from ...core.records import Record, to_records
 from ...core.supabase_utils import get_data, raise_for_error
 from ...repositories.instagram_account_repository import InstagramAccountRepository
+from ...repositories.instagram_post_repository import InstagramPostRepository
 from ..data_collection.instagram_api_client import InstagramAPIClient, InstagramAPIError
 
 logger = logging.getLogger(__name__)
@@ -22,9 +24,13 @@ logger = logging.getLogger(__name__)
 class PostInsightService:
     """投稿インサイトサービス"""
 
+    _MEDIA_URL_REFRESH_LEEWAY = timedelta(minutes=10)
+    _MAX_MEDIA_URL_REFRESH_POSTS = 150
+
     def __init__(self, supabase: Client):
         self.supabase = supabase
         self.account_repo = InstagramAccountRepository(supabase)
+        self.post_repo = InstagramPostRepository(supabase)
 
     async def get_post_insights(
         self,
@@ -269,6 +275,56 @@ class PostInsightService:
 
         if refreshed:
             logger.info(f"Refreshed media URLs for {refreshed} posts (batch)")
+
+    async def _refresh_media_urls_per_post(
+        self,
+        access_token: str,
+        posts: List[Record],
+    ) -> None:
+        semaphore = asyncio.Semaphore(5)
+
+        async with InstagramAPIClient() as api_client:
+            async def fetch_media(post: Record) -> tuple[Record, Optional[dict]]:
+                ig_post_id = (post.get("instagram_post_id") or "").strip()
+                if not ig_post_id:
+                    return (post, None)
+
+                async with semaphore:
+                    try:
+                        media = await api_client.get_media(
+                            media_id=ig_post_id,
+                            access_token=access_token,
+                            fields="id,media_url,thumbnail_url",
+                        )
+                        return (post, media)
+                    except InstagramAPIError as e:
+                        logger.warning(f"Failed to refresh media URL for {ig_post_id}: {e}")
+                        return (post, None)
+
+            results = await asyncio.gather(*(fetch_media(p) for p in posts))
+
+        refreshed = 0
+        for post, media in results:
+            if not media:
+                continue
+
+            update_data: dict[str, Any] = {}
+            new_media_url = (media.get("media_url") or "").strip()
+            new_thumb_url = (media.get("thumbnail_url") or "").strip()
+
+            if new_media_url and new_media_url != (post.get("media_url") or ""):
+                update_data["media_url"] = new_media_url
+                post["media_url"] = new_media_url
+            if new_thumb_url and new_thumb_url != (post.get("thumbnail_url") or ""):
+                update_data["thumbnail_url"] = new_thumb_url
+                post["thumbnail_url"] = new_thumb_url
+
+            if update_data and post.get("id"):
+                await self.post_repo.update(str(post["id"]), update_data)
+                refreshed += 1
+
+        if refreshed:
+            logger.info(f"Refreshed media URLs for {refreshed} posts (per-post)")
 
     def _calculate_engagement_rate(self, metrics: Record) -> float:
         reach = metrics.get("reach") or 0
