@@ -6,7 +6,7 @@ Post Insight Service
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from supabase import Client
@@ -14,6 +14,7 @@ from supabase import Client
 from ...core.records import Record, to_records
 from ...core.supabase_utils import get_data, raise_for_error
 from ...repositories.instagram_account_repository import InstagramAccountRepository
+from ..data_collection.instagram_api_client import InstagramAPIClient, InstagramAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,53 @@ class PostInsightService:
 
     def _get_thumbnail_url(self, post: Record) -> str:
         return post.get("thumbnail_url") or post.get("media_url") or ""
+
+    async def _refresh_media_urls_from_latest_posts(
+        self,
+        instagram_user_id: str,
+        access_token: str,
+        all_considered: List[Record],
+        to_refresh: List[Record],
+    ) -> None:
+        max_posts = max(1, len(all_considered))
+        since_dt = datetime.fromtimestamp(0, tz=timezone.utc)
+
+        async with InstagramAPIClient() as api_client:
+            api_posts = await api_client.get_posts_since(
+                instagram_user_id=instagram_user_id,
+                access_token=access_token,
+                since_datetime=since_dt,
+                max_posts=max_posts,
+            )
+
+        api_by_id: dict[str, dict] = {
+            (p.get("id") or ""): p for p in api_posts if p.get("id")
+        }
+
+        refreshed = 0
+        for post in to_refresh:
+            ig_post_id = post.get("instagram_post_id") or ""
+            api_post = api_by_id.get(ig_post_id)
+            if not api_post:
+                continue
+
+            update_data: dict[str, Any] = {}
+            new_media_url = (api_post.get("media_url") or "").strip()
+            new_thumb_url = (api_post.get("thumbnail_url") or "").strip()
+
+            if new_media_url and new_media_url != (post.get("media_url") or ""):
+                update_data["media_url"] = new_media_url
+                post["media_url"] = new_media_url
+            if new_thumb_url and new_thumb_url != (post.get("thumbnail_url") or ""):
+                update_data["thumbnail_url"] = new_thumb_url
+                post["thumbnail_url"] = new_thumb_url
+
+            if update_data and post.get("id"):
+                await self.post_repo.update(str(post["id"]), update_data)
+                refreshed += 1
+
+        if refreshed:
+            logger.info(f"Refreshed media URLs for {refreshed} posts (batch)")
 
     def _calculate_engagement_rate(self, metrics: Record) -> float:
         reach = metrics.get("reach") or 0
