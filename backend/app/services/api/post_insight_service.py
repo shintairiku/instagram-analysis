@@ -68,6 +68,16 @@ class PostInsightService:
             limit=limit,
         )
 
+        # NOTE: Instagram Graph API の media_url / thumbnail_url は短期間で期限切れ（403）になることがあるため、
+        #       返却前に期限切れのURLだけリフレッシュして DB/レスポンス双方を更新する。
+        await self._refresh_expired_media_urls(
+            account=account,
+            posts=[p for p, _ in posts_with_metrics],
+            from_date=from_date,
+            to_date=to_date,
+            media_type=media_type,
+        )
+
         post_insights: list[dict] = []
         for post, metrics in posts_with_metrics:
             post_insights.append(self._convert_to_insight_data(post, metrics))
@@ -256,6 +266,46 @@ class PostInsightService:
 
         now = datetime.now(timezone.utc)
         return expiry <= now + self._MEDIA_URL_REFRESH_LEEWAY
+
+    async def _refresh_expired_media_urls(
+        self,
+        account: Record,
+        posts: List[Record],
+        from_date: Optional[date],
+        to_date: Optional[date],
+        media_type: Optional[str],
+    ) -> None:
+        if not posts:
+            return
+
+        access_token = (account.get("access_token_encrypted") or "").strip()
+        instagram_user_id = (account.get("instagram_user_id") or "").strip()
+        if not access_token or not instagram_user_id:
+            return
+
+        # 安全のため、1リクエストでのリフレッシュ対象件数を制限
+        considered = posts[: self._MAX_MEDIA_URL_REFRESH_POSTS]
+        to_refresh = [p for p in considered if self._should_refresh_media_url(p)]
+        if not to_refresh:
+            return
+
+        try:
+            # フィルタが無い場合は「最新N件」なので、User media をまとめて取得して差し替える（API呼び出しを抑える）。
+            if from_date is None and to_date is None and media_type is None:
+                await self._refresh_media_urls_from_latest_posts(
+                    instagram_user_id=instagram_user_id,
+                    access_token=access_token,
+                    all_considered=considered,
+                    to_refresh=to_refresh,
+                )
+                return
+
+            await self._refresh_media_urls_per_post(
+                access_token=access_token,
+                posts=to_refresh,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to refresh media URLs (continuing): {e}")
 
     async def _refresh_media_urls_from_latest_posts(
         self,
