@@ -105,7 +105,13 @@ export default function Header() {
           <Download className="h-4 w-4 mr-2" />
           {isExporting ? 'エクスポート中...' : 'PDF エクスポート'}
         </Button>
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <Popover
+          open={isOpen}
+          onOpenChange={(open) => {
+            setIsOpen(open);
+            if (!open) setAccountSearch("");
+          }}
+        >
             <PopoverTrigger asChild>
             <Button 
                 variant="outline" 
