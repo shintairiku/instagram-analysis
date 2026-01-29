@@ -210,12 +210,14 @@ export default function Header() {
                     </div>
 
                     {/* アカウント一覧 */}
-                    {accounts.length === 0 && !loading ? (
+                    {filteredAccounts.length === 0 && !loading ? (
                     <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-                        アカウントが見つかりません
+                        {accounts.length === 0
+                          ? "アカウントが見つかりません"
+                          : "一致するアカウントがありません"}
                     </div>
                     ) : (
-                    accounts.map((account) => {
+                    filteredAccounts.map((account) => {
                         const summary = getAccountSummary(account);
                         return (
                         <Button
