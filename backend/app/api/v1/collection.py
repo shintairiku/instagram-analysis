@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, status
@@ -34,6 +34,14 @@ _daily_last_status: Dict[str, Any] = {
 }
 
 _account_locks: Dict[str, asyncio.Lock] = {}
+_recent_lock = asyncio.Lock()
+_recent_last_status: Dict[str, Any] = {
+    "running": False,
+    "started_at": None,
+    "completed_at": None,
+    "last_error": None,
+    "last_summary": None,
+}
 
 
 def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
@@ -232,3 +240,189 @@ async def refresh_account_recent_posts(
         "posts_processed": result.posts_processed,
         "metrics_saved": result.metrics_saved,
     }
+
+
+class RecentPostSyncTriggerRequest(BaseModel):
+    account_filter: Optional[List[str]] = Field(
+        default=None,
+        description="対象アカウント（instagram_user_id）のリスト。未指定時は全アクティブ",
+    )
+    window_days: int = Field(default=30, ge=1, le=90, description="直近何日分の投稿を更新対象にするか")
+    max_posts: int = Field(default=50, ge=1, le=200, description="更新対象の最大投稿数（レート制限対策）")
+    dry_run: bool = Field(default=False, description="true の場合DB保存を行わない")
+    force: bool = Field(default=False, description="最終更新からの間隔チェックを無視して実行")
+    per_post_delay_seconds: float = Field(default=0.2, ge=0, le=10, description="投稿間ディレイ（秒）")
+    per_account_delay_seconds: float = Field(default=1.0, ge=0, le=60, description="アカウント間ディレイ（秒）")
+
+
+async def _run_recent_post_sync_job(req: RecentPostSyncTriggerRequest) -> None:
+    global _recent_last_status
+    try:
+        _recent_last_status.update(
+            {
+                "running": True,
+                "started_at": datetime.utcnow().isoformat(),
+                "completed_at": None,
+                "last_error": None,
+                "last_summary": None,
+            }
+        )
+
+        min_interval_seconds = int(os.getenv("SCHEDULED_REFRESH_MIN_INTERVAL_SECONDS", "0"))
+
+        service = create_recent_post_sync_service()
+        service.init_repositories()
+        assert service.account_repo is not None
+
+        accounts = (
+            await service.account_repo.get_accounts_for_collection(req.account_filter)
+            if req.account_filter
+            else await service.account_repo.get_active_accounts()
+        )
+
+        total = len(accounts)
+        success = 0
+        failed = 0
+        skipped = 0
+        results: List[Dict[str, Any]] = []
+
+        now_utc = datetime.now(timezone.utc)
+
+        for account in accounts:
+            instagram_user_id = account.get("instagram_user_id")
+            if not instagram_user_id:
+                failed += 1
+                results.append({"success": False, "error": "Missing instagram_user_id"})
+                continue
+
+            # 同一プロセス内の手動更新と衝突した場合はスキップ
+            account_lock = _account_locks.setdefault(str(instagram_user_id), asyncio.Lock())
+            if account_lock.locked():
+                skipped += 1
+                results.append(
+                    {
+                        "instagram_user_id": str(instagram_user_id),
+                        "success": False,
+                        "skipped": True,
+                        "error": "Account refresh is already running",
+                    }
+                )
+                continue
+
+            if not req.force and min_interval_seconds > 0:
+                last_synced_at = _parse_dt(account.get("last_synced_at"))
+                if last_synced_at:
+                    base_now = now_utc
+                    try:
+                        # last_synced_at が tz-aware の場合は tz を合わせる
+                        base_now = now_utc.astimezone(last_synced_at.tzinfo) if last_synced_at.tzinfo else now_utc
+                    except Exception:
+                        base_now = now_utc
+                    elapsed = (base_now - last_synced_at).total_seconds()
+                    if elapsed < min_interval_seconds:
+                        skipped += 1
+                        results.append(
+                            {
+                                "instagram_user_id": str(instagram_user_id),
+                                "success": True,
+                                "skipped": True,
+                                "reason": f"Within min interval ({int(elapsed)}s < {min_interval_seconds}s)",
+                            }
+                        )
+                        continue
+
+            async with account_lock:
+                result = await service.sync_recent_posts(
+                    account_id=str(instagram_user_id),
+                    window_days=req.window_days,
+                    max_posts=req.max_posts,
+                    dry_run=req.dry_run,
+                    per_post_delay_seconds=req.per_post_delay_seconds,
+                )
+
+            if result.success:
+                success += 1
+                results.append(
+                    {
+                        "instagram_user_id": result.instagram_user_id,
+                        "success": True,
+                        "collected_at": result.collected_at.isoformat(),
+                        "posts_processed": result.posts_processed,
+                        "metrics_saved": result.metrics_saved,
+                    }
+                )
+            else:
+                failed += 1
+                results.append(
+                    {
+                        "instagram_user_id": result.instagram_user_id,
+                        "success": False,
+                        "error": result.error_message,
+                    }
+                )
+
+            if req.per_account_delay_seconds > 0:
+                await asyncio.sleep(req.per_account_delay_seconds)
+
+        _recent_last_status["last_summary"] = {
+            "total_accounts": total,
+            "successful_accounts": success,
+            "failed_accounts": failed,
+            "skipped_accounts": skipped,
+            "window_days": req.window_days,
+            "max_posts": req.max_posts,
+            "dry_run": req.dry_run,
+            "per_post_delay_seconds": req.per_post_delay_seconds,
+            "per_account_delay_seconds": req.per_account_delay_seconds,
+            "min_interval_seconds": min_interval_seconds,
+            "results": results,
+        }
+
+    except Exception as e:
+        logger.error(f"Recent post sync job failed: {e}", exc_info=True)
+        _recent_last_status["last_error"] = str(e)
+    finally:
+        _recent_last_status["running"] = False
+        _recent_last_status["completed_at"] = datetime.utcnow().isoformat()
+        try:
+            _recent_lock.release()
+        except RuntimeError:
+            pass
+
+
+@router.post(
+    "/recent-posts",
+    summary="直近投稿同期トリガー（全アクティブ / フィルタ指定）",
+    description="バックグラウンドで直近投稿同期（投稿 + 投稿インサイト）を開始します。重複実行は拒否します。",
+)
+async def trigger_recent_post_sync(
+    background_tasks: BackgroundTasks,
+    request: RecentPostSyncTriggerRequest = Body(default_factory=RecentPostSyncTriggerRequest),
+    _: None = Depends(require_collection_token),
+) -> Dict[str, Any]:
+    if _recent_lock.locked():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recent post sync is already running")
+
+    await _recent_lock.acquire()
+    background_tasks.add_task(_run_recent_post_sync_job, request)
+
+    return {
+        "accepted": True,
+        "job": "recent_post_sync",
+        "queued_at": datetime.utcnow().isoformat(),
+        "account_filter": request.account_filter,
+        "window_days": request.window_days,
+        "max_posts": request.max_posts,
+        "dry_run": request.dry_run,
+    }
+
+
+@router.get(
+    "/recent-posts/status",
+    summary="直近投稿同期ステータス",
+    description="直近の実行状況（同一プロセス内）を返します。",
+)
+async def get_recent_post_sync_status(
+    _: None = Depends(require_collection_token),
+) -> Dict[str, Any]:
+    return _recent_last_status
