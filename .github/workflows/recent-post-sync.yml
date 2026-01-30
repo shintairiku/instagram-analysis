@@ -1,0 +1,66 @@
+name: Scheduled Recent Post Sync (08:00 JST)
+
+on:
+  schedule:
+    # GitHub Actions cron is UTC. 08:00 JST = 23:00 UTC (previous day).
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+    inputs:
+      window_days:
+        description: "Update window (days)"
+        required: false
+        default: "30"
+      max_posts:
+        description: "Max posts per account"
+        required: false
+        default: "50"
+      force:
+        description: "Ignore min-interval checks"
+        required: false
+        default: "false"
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger backend job
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          COLLECTION_TRIGGER_TOKEN: ${{ secrets.COLLECTION_TRIGGER_TOKEN }}
+          WINDOW_DAYS: ${{ inputs.window_days || '30' }}
+          MAX_POSTS: ${{ inputs.max_posts || '50' }}
+          FORCE: ${{ inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKEND_BASE_URL:-}" ]; then
+            echo "Missing secret: BACKEND_BASE_URL" >&2
+            exit 1
+          fi
+          if [ -z "${COLLECTION_TRIGGER_TOKEN:-}" ]; then
+            echo "Missing secret: COLLECTION_TRIGGER_TOKEN" >&2
+            exit 1
+          fi
+
+          payload=$(printf '{"window_days":%s,"max_posts":%s,"dry_run":false,"force":%s}' "$WINDOW_DAYS" "$MAX_POSTS" "$FORCE")
+          echo "POST ${BACKEND_BASE_URL}/api/v1/collection/recent-posts payload=${payload}"
+
+          tmp="$(mktemp)"
+          http_code="$(
+            curl -sS -o "$tmp" -w "%{http_code}" \
+              -X POST "${BACKEND_BASE_URL}/api/v1/collection/recent-posts" \
+              -H "Authorization: Bearer ${COLLECTION_TRIGGER_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$payload" || true
+          )"
+
+          cat "$tmp"
+          if [ "$http_code" = "409" ]; then
+            echo "Already running (409) - treating as success"
+            exit 0
+          fi
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            exit 0
+          fi
+          echo "Request failed with HTTP $http_code" >&2
+          exit 1
