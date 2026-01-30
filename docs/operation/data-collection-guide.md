@@ -24,6 +24,30 @@ schedule:
   - cron: '0 21 * * *'  # 毎日 06:00 JST (21:00 UTC)
 ```
 
+## 🕗 直近投稿同期（Post Insight / 日次更新）
+
+投稿インサイト（`instagram_post_metrics`）は、直近投稿同期（upsert: `create_or_update_daily`）で更新されます。  
+「最新情報を取得」ボタンを押さなくても、**毎日 08:00 JST に自動実行**されるようにスケジューラを設定してください。
+
+### 自動実行（GitHub Actions）
+**ワークフロー**: `.github/workflows/recent-post-sync.yml`
+
+```yaml
+schedule:
+  # GitHub Actions cron は UTC。08:00 JST = 23:00 UTC (前日)
+  - cron: '0 23 * * *'
+```
+
+### トリガー先（Backend API）
+GitHub Actions からは Backend のトリガーAPIを叩きます。
+
+- `POST /api/v1/collection/recent-posts`
+- 認証: `Authorization: Bearer $COLLECTION_TRIGGER_TOKEN`
+
+必要な GitHub Secrets:
+- `BACKEND_BASE_URL`（例: `https://xxxx.railway.app`）
+- `COLLECTION_TRIGGER_TOKEN`
+
 ### 手動実行
 緊急時や特定アカウントのみ実行したい場合：
 
