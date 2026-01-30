@@ -109,6 +109,8 @@ cp verification/.env.example verification/.env
 ##### GitHub Actions（Repository Secrets）
 | 変数名 | 必須 | 説明 |
 |---|---:|---|
+| `BACKEND_BASE_URL` | ✅ | Backend のベースURL（例: `https://<BACKEND_HOST>`） |
+| `COLLECTION_TRIGGER_TOKEN` | ✅ | 定期実行トリガーAPI用トークン（Backend側の `COLLECTION_TRIGGER_TOKEN` と一致させる） |
 | `SUPABASE_URL` | ✅ | Actions実行時のSupabase URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Actions実行時のSupabase service role key |
 | `SLACK_WEBHOOK_URL` | 任意 | 失敗/新規投稿などのSlack通知先 |
@@ -170,6 +172,8 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 - `POST /api/v1/collection/daily`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
 - `GET /api/v1/collection/daily/status`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
+- `POST /api/v1/collection/recent-posts`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
+- `GET /api/v1/collection/recent-posts/status`（Authorization: Bearer `COLLECTION_TRIGGER_TOKEN`）
 
 ### Google Cloud Scheduler（HTTP）設定例
 
@@ -186,6 +190,11 @@ Console（推奨）:
 - タイムゾーン：`Asia/Tokyo`
 - スケジュール：例）毎日 06:00 JST → `0 6 * * *`
 - 作成後「今すぐ実行」で疎通確認
+
+直近投稿同期（投稿インサイト更新）の例：
+- タイムゾーン：`Asia/Tokyo`
+- スケジュール：例）毎日 08:00 JST → `0 8 * * *`
+- URL：`https://<BACKEND_HOST>/api/v1/collection/recent-posts`
 
 `gcloud`（例）:
 ```bash
