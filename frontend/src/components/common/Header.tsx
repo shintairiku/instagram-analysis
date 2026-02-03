@@ -5,12 +5,22 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ChevronDown, Check, Download, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import {
+  ChevronDown,
+  Check,
+  Download,
+  AlertTriangle,
+  Loader2,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
 import { exportToPDF } from "@/lib/pdfExport";
 import { useAccount } from "@/hooks/useAccount";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -29,6 +39,7 @@ export default function Header() {
 
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [accountSearch, setAccountSearch] = useState("");
 
   const handleAccountSelect = (accountId: string) => {
     selectAccount(accountId);
@@ -48,6 +59,21 @@ export default function Header() {
     clearError();
     await refreshAccounts();
   };
+
+  const normalizedQuery = accountSearch.trim().toLowerCase().normalize("NFKC");
+  const filteredAccounts = normalizedQuery
+    ? accounts.filter((account) => {
+        const username = account.username.toLowerCase().normalize("NFKC");
+        const usernameWithAt = `@${account.username}`.toLowerCase().normalize("NFKC");
+        const accountName = (account.account_name ?? "").toLowerCase().normalize("NFKC");
+
+        return (
+          username.includes(normalizedQuery) ||
+          usernameWithAt.includes(normalizedQuery) ||
+          accountName.includes(normalizedQuery)
+        );
+      })
+    : accounts;
 
   return (
     <header className="flex justify-between items-center p-4 border-b" style={{ backgroundColor: '#c0b487', color: '#ffffff' }}>
@@ -79,7 +105,13 @@ export default function Header() {
           <Download className="h-4 w-4 mr-2" />
           {isExporting ? 'エクスポート中...' : 'PDF エクスポート'}
         </Button>
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <Popover
+          open={isOpen}
+          onOpenChange={(open) => {
+            setIsOpen(open);
+            if (!open) setAccountSearch("");
+          }}
+        >
             <PopoverTrigger asChild>
             <Button 
                 variant="outline" 
@@ -157,13 +189,41 @@ export default function Header() {
                     </Alert>
                     )}
                     
+                    {/* 検索 */}
+                    <div className="px-2 pb-2">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={accountSearch}
+                          onChange={(e) => setAccountSearch(e.target.value)}
+                          placeholder="会社名 / @アカウント名で検索"
+                          className="h-8 pl-8 pr-8 text-sm"
+                          autoFocus
+                        />
+                        {accountSearch.trim().length > 0 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
+                            onClick={() => setAccountSearch("")}
+                            aria-label="検索をクリア"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
                     {/* アカウント一覧 */}
-                    {accounts.length === 0 && !loading ? (
+                    {filteredAccounts.length === 0 && !loading ? (
                     <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-                        アカウントが見つかりません
+                        {accounts.length === 0
+                          ? "アカウントが見つかりません"
+                          : "一致するアカウントがありません"}
                     </div>
                     ) : (
-                    accounts.map((account) => {
+                    filteredAccounts.map((account) => {
                         const summary = getAccountSummary(account);
                         return (
                         <Button
