@@ -326,6 +326,32 @@ class InstagramAPIClient:
         except InstagramAPIError as e:
             logger.error(f"Failed to fetch recent posts for user {instagram_user_id}: {str(e)}")
             return []
+
+    async def get_media(
+        self,
+        media_id: str,
+        access_token: str,
+        fields: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        単一メディア（投稿）を取得
+
+        Args:
+            media_id: Instagram Media ID
+            access_token: アクセストークン（平文）
+            fields: 取得フィールド（省略時は get_media_fields を使用）
+
+        Returns:
+            Dict[str, Any]: メディアデータ
+        """
+        url = self.config.get_user_url(media_id)
+        params = {
+            "fields": fields or self.config.get_media_fields(),
+            "access_token": access_token,
+        }
+
+        logger.info(f"Fetching media data for media: {media_id}")
+        return await self._make_request(url, params)
     
     async def get_post_insights(
         self,

@@ -5,15 +5,19 @@ Post Insight Service
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 from supabase import Client
 
 from ...core.records import Record, to_records
 from ...core.supabase_utils import get_data, raise_for_error
 from ...repositories.instagram_account_repository import InstagramAccountRepository
+from ...repositories.instagram_post_repository import InstagramPostRepository
+from ..data_collection.instagram_api_client import InstagramAPIClient, InstagramAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +25,13 @@ logger = logging.getLogger(__name__)
 class PostInsightService:
     """投稿インサイトサービス"""
 
+    _MEDIA_URL_REFRESH_LEEWAY = timedelta(minutes=10)
+    _MAX_MEDIA_URL_REFRESH_POSTS = 150
+
     def __init__(self, supabase: Client):
         self.supabase = supabase
         self.account_repo = InstagramAccountRepository(supabase)
+        self.post_repo = InstagramPostRepository(supabase)
 
     async def get_post_insights(
         self,
@@ -58,6 +66,16 @@ class PostInsightService:
             to_date=to_date,
             media_type=media_type,
             limit=limit,
+        )
+
+        # NOTE: Instagram Graph API の media_url / thumbnail_url は短期間で期限切れ（403）になることがあるため、
+        #       返却前に期限切れのURLだけリフレッシュして DB/レスポンス双方を更新する。
+        await self._refresh_expired_media_urls(
+            account=account,
+            posts=[p for p, _ in posts_with_metrics],
+            from_date=from_date,
+            to_date=to_date,
+            media_type=media_type,
         )
 
         post_insights: list[dict] = []
@@ -221,6 +239,170 @@ class PostInsightService:
 
     def _get_thumbnail_url(self, post: Record) -> str:
         return post.get("thumbnail_url") or post.get("media_url") or ""
+
+    def _extract_instagram_cdn_expiry(self, url: str) -> Optional[datetime]:
+        if not url:
+            return None
+        try:
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            oe = (qs.get("oe") or qs.get("_nc_oe") or [None])[0]
+            if not oe:
+                return None
+            # Instagram CDN の `oe` は hex の epoch 秒（例: 6975142D）
+            expiry_ts = int(oe, 16)
+            return datetime.fromtimestamp(expiry_ts, tz=timezone.utc)
+        except Exception:
+            return None
+
+    def _should_refresh_media_url(self, post: Record) -> bool:
+        url = (post.get("thumbnail_url") or post.get("media_url") or "").strip()
+        if not url:
+            return True
+
+        expiry = self._extract_instagram_cdn_expiry(url)
+        if not expiry:
+            return False
+
+        now = datetime.now(timezone.utc)
+        return expiry <= now + self._MEDIA_URL_REFRESH_LEEWAY
+
+    async def _refresh_expired_media_urls(
+        self,
+        account: Record,
+        posts: List[Record],
+        from_date: Optional[date],
+        to_date: Optional[date],
+        media_type: Optional[str],
+    ) -> None:
+        if not posts:
+            return
+
+        access_token = (account.get("access_token_encrypted") or "").strip()
+        instagram_user_id = (account.get("instagram_user_id") or "").strip()
+        if not access_token or not instagram_user_id:
+            return
+
+        # 安全のため、1リクエストでのリフレッシュ対象件数を制限
+        considered = posts[: self._MAX_MEDIA_URL_REFRESH_POSTS]
+        to_refresh = [p for p in considered if self._should_refresh_media_url(p)]
+        if not to_refresh:
+            return
+
+        try:
+            # フィルタが無い場合は「最新N件」なので、User media をまとめて取得して差し替える（API呼び出しを抑える）。
+            if from_date is None and to_date is None and media_type is None:
+                await self._refresh_media_urls_from_latest_posts(
+                    instagram_user_id=instagram_user_id,
+                    access_token=access_token,
+                    all_considered=considered,
+                    to_refresh=to_refresh,
+                )
+                return
+
+            await self._refresh_media_urls_per_post(
+                access_token=access_token,
+                posts=to_refresh,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to refresh media URLs (continuing): {e}")
+
+    async def _refresh_media_urls_from_latest_posts(
+        self,
+        instagram_user_id: str,
+        access_token: str,
+        all_considered: List[Record],
+        to_refresh: List[Record],
+    ) -> None:
+        max_posts = max(1, len(all_considered))
+        since_dt = datetime.fromtimestamp(0, tz=timezone.utc)
+
+        async with InstagramAPIClient() as api_client:
+            api_posts = await api_client.get_posts_since(
+                instagram_user_id=instagram_user_id,
+                access_token=access_token,
+                since_datetime=since_dt,
+                max_posts=max_posts,
+            )
+
+        api_by_id: dict[str, dict] = {
+            (p.get("id") or ""): p for p in api_posts if p.get("id")
+        }
+
+        refreshed = 0
+        for post in to_refresh:
+            ig_post_id = post.get("instagram_post_id") or ""
+            api_post = api_by_id.get(ig_post_id)
+            if not api_post:
+                continue
+
+            update_data: dict[str, Any] = {}
+            new_media_url = (api_post.get("media_url") or "").strip()
+            new_thumb_url = (api_post.get("thumbnail_url") or "").strip()
+
+            if new_media_url and new_media_url != (post.get("media_url") or ""):
+                update_data["media_url"] = new_media_url
+                post["media_url"] = new_media_url
+            if new_thumb_url and new_thumb_url != (post.get("thumbnail_url") or ""):
+                update_data["thumbnail_url"] = new_thumb_url
+                post["thumbnail_url"] = new_thumb_url
+
+            if update_data and post.get("id"):
+                await self.post_repo.update(str(post["id"]), update_data)
+                refreshed += 1
+
+        if refreshed:
+            logger.info(f"Refreshed media URLs for {refreshed} posts (batch)")
+
+    async def _refresh_media_urls_per_post(
+        self,
+        access_token: str,
+        posts: List[Record],
+    ) -> None:
+        semaphore = asyncio.Semaphore(5)
+
+        async with InstagramAPIClient() as api_client:
+            async def fetch_media(post: Record) -> tuple[Record, Optional[dict]]:
+                ig_post_id = (post.get("instagram_post_id") or "").strip()
+                if not ig_post_id:
+                    return (post, None)
+
+                async with semaphore:
+                    try:
+                        media = await api_client.get_media(
+                            media_id=ig_post_id,
+                            access_token=access_token,
+                            fields="id,media_url,thumbnail_url",
+                        )
+                        return (post, media)
+                    except InstagramAPIError as e:
+                        logger.warning(f"Failed to refresh media URL for {ig_post_id}: {e}")
+                        return (post, None)
+
+            results = await asyncio.gather(*(fetch_media(p) for p in posts))
+
+        refreshed = 0
+        for post, media in results:
+            if not media:
+                continue
+
+            update_data: dict[str, Any] = {}
+            new_media_url = (media.get("media_url") or "").strip()
+            new_thumb_url = (media.get("thumbnail_url") or "").strip()
+
+            if new_media_url and new_media_url != (post.get("media_url") or ""):
+                update_data["media_url"] = new_media_url
+                post["media_url"] = new_media_url
+            if new_thumb_url and new_thumb_url != (post.get("thumbnail_url") or ""):
+                update_data["thumbnail_url"] = new_thumb_url
+                post["thumbnail_url"] = new_thumb_url
+
+            if update_data and post.get("id"):
+                await self.post_repo.update(str(post["id"]), update_data)
+                refreshed += 1
+
+        if refreshed:
+            logger.info(f"Refreshed media URLs for {refreshed} posts (per-post)")
 
     def _calculate_engagement_rate(self, metrics: Record) -> float:
         reach = metrics.get("reach") or 0
