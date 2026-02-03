@@ -96,7 +96,19 @@ export default function PostInsight() {
       });
     }
 
-    return filtered;
+    // 表示順：投稿日を昇順（古い → 新しい）
+    return [...filtered].sort((a, b) => {
+      const aTime = Date.parse(a.date);
+      const bTime = Date.parse(b.date);
+
+      const aInvalid = Number.isNaN(aTime);
+      const bInvalid = Number.isNaN(bTime);
+      if (aInvalid && bInvalid) return 0;
+      if (aInvalid) return 1;
+      if (bInvalid) return -1;
+
+      return aTime - bTime;
+    });
   };
 
   const filteredData = getFilteredData();
