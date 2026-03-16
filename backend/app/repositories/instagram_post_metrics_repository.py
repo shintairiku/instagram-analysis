@@ -100,9 +100,22 @@ class InstagramPostMetricsRepository:
     async def create_or_update_daily(self, metrics_data: dict) -> Record:
         """日別メトリクス作成または更新"""
         post_id = metrics_data['post_id']
-        today = date.today()
-        
-        existing_metrics = await self.get_by_specific_date(post_id, today)
+        # "日別" は recorded_at の UTC 日付で判定する（実行環境のローカルTZに依存しない）
+        recorded_at = metrics_data.get("recorded_at")
+        if isinstance(recorded_at, datetime):
+            dt = recorded_at if recorded_at.tzinfo else recorded_at.replace(tzinfo=timezone.utc)
+            target_date = dt.astimezone(timezone.utc).date()
+        elif isinstance(recorded_at, str):
+            try:
+                parsed = datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
+                dt = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                target_date = dt.astimezone(timezone.utc).date()
+            except ValueError:
+                target_date = datetime.now(timezone.utc).date()
+        else:
+            target_date = datetime.now(timezone.utc).date()
+
+        existing_metrics = await self.get_by_specific_date(post_id, target_date)
         
         if existing_metrics:
             # 今日のメトリクスが既に存在する場合は更新
