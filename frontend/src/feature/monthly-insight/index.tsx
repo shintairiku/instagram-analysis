@@ -13,8 +13,7 @@ export default function MonthlyInsight() {
   const [selectedMonth, setSelectedMonth] = useState("2024-12");
 
   return (
-    // html2canvasでエクスポートするために、idを付与する
-    <div className="space-y-6 p-6">
+    <div id="monthly-analysis-content" className="space-y-6 p-6">
       {/* ヘッダー */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
