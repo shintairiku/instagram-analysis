@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Header from "@/components/common/Header";
 import { AccountProvider } from "@/contexts/AccountContext";
+import { ClientLayout } from "./client-layout";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Shintairiku-IG-analysis",
-  description: "Shintairiku-IG-analysis",
+  title: "Instagram Analytics - 新大陸",
+  description: "Instagram分析ダッシュボード",
 };
 
 export default function RootLayout({
@@ -25,13 +25,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+    <html lang="ja">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AccountProvider>
-          <Header />
-          {children}
+          <ClientLayout>{children}</ClientLayout>
         </AccountProvider>
       </body>
     </html>
