@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { format, subMonths } from "date-fns";
-import { Calendar as CalendarIcon, AlertCircle, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, AlertCircle, Loader2, Eye, Heart, Bookmark, Share2, MessageCircle, TrendingUp } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { DateRange } from "react-day-picker";
 import { PostInsightTable } from "./components/PostInsightTable";
 import { PostInsightChart } from "./components/PostInsightChart";
@@ -147,95 +148,101 @@ export default function PostInsight() {
     }
   }, [refresh, refreshAccounts, selectedAccount?.instagram_user_id]);
 
+  // Summary calculations
+  const totalReach = filteredData.reduce((s, p) => s + p.reach, 0);
+  const totalLikes = filteredData.reduce((s, p) => s + p.likes, 0);
+  const totalComments = filteredData.reduce((s, p) => s + p.comments, 0);
+  const totalSaves = filteredData.reduce((s, p) => s + p.saves, 0);
+  const totalShares = filteredData.reduce((s, p) => s + p.shares, 0);
+  const avgEgRate = filteredData.length > 0
+    ? filteredData.reduce((s, p) => s + p.engagement_rate, 0) / filteredData.length
+    : 0;
+
   return (
-    <div className="space-y-6 p-6">
-      {/* ヘッダー */}
-      <div className="flex items-center justify-between">
-        <div>
-          {/* データソース表示 */}
-          {apiData && (
-            <p className="text-xs text-muted-foreground mt-1">
-              @{apiData.meta.username} ({filteredData.length}件 / 全{apiData.meta.total_posts}件の投稿)
-            </p>
-          )}
-          {selectedAccount?.last_synced_at && (
-            <p className="text-xs text-muted-foreground mt-1">
-              最終更新: {formatJstMdHm(selectedAccount.last_synced_at)}（JST）
-            </p>
-          )}
-        </div>
-        
-        {/* フィルター */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+    <div className="space-y-4 p-4 md:p-6">
+      {/* Filters - responsive layout */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
+            size="sm"
             onClick={handleManualRefresh}
             disabled={!selectedAccount || refreshing}
           >
-            {refreshing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {refreshing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
             最新情報を取得
           </Button>
 
-          {/* 日付範囲選択 */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">期間（JST）:</span>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  id="date"
-                  variant="outline"
-                  className={cn(
-                    "w-[300px] justify-start text-left font-normal",
-                    !date && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {date?.from ? (
-                    date.to ? (
-                      <>
-                        {format(date.from, "yyyy/MM/dd")} -{" "}
-                        {format(date.to, "yyyy/MM/dd")}
-                      </>
-                    ) : (
-                      format(date.from, "yyyy/MM/dd")
-                    )
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "justify-start text-left font-normal",
+                  !date && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-1.5 h-3 w-3" />
+                {date?.from ? (
+                  date.to ? (
+                    <span className="text-xs">{format(date.from, "yyyy/MM/dd")} - {format(date.to, "yyyy/MM/dd")}</span>
                   ) : (
-                    <span>日付を選択してください</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  initialFocus
-                  mode="range"
-                  defaultMonth={date?.from}
-                  selected={date}
-                  onSelect={setDate}
-                  numberOfMonths={2}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
+                    <span className="text-xs">{format(date.from, "yyyy/MM/dd")}</span>
+                  )
+                ) : (
+                  <span className="text-xs">日付を選択</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar initialFocus mode="range" defaultMonth={date?.from} selected={date} onSelect={setDate} numberOfMonths={2} />
+            </PopoverContent>
+          </Popover>
 
-          {/* コンテンツタイプ選択 */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">タイプ:</span>
-            <Tabs
-              value={selectedType}
-              onValueChange={(value) => setSelectedType(value as ContentType)}
-              className="w-auto"
-            >
-              <TabsList className="grid w-full grid-cols-5">
-                {contentTypes.map((type) => (
-                  <TabsTrigger key={type} value={type} className="text-xs">
-                    {type}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </div>
+          <Tabs value={selectedType} onValueChange={(v) => setSelectedType(v as ContentType)} className="w-auto">
+            <TabsList className="h-8">
+              {contentTypes.map((type) => (
+                <TabsTrigger key={type} value={type} className="text-xs px-2 py-1">
+                  {type === "CAROUSEL_ALBUM" ? "Carousel" : type}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+
+          {apiData && (
+            <span className="text-xs text-muted-foreground ml-auto">
+              {filteredData.length}件 / 全{apiData.meta.total_posts}件
+              {selectedAccount?.last_synced_at && ` | 更新: ${formatJstMdHm(selectedAccount.last_synced_at)}`}
+            </span>
+          )}
         </div>
       </div>
+
+      {/* Summary KPI Cards */}
+      {filteredData.length > 0 && (
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+          {[
+            { label: "リーチ", value: totalReach.toLocaleString(), icon: Eye, color: "#4ade80" },
+            { label: "いいね", value: totalLikes.toLocaleString(), icon: Heart, color: "#f472b6" },
+            { label: "コメント", value: totalComments.toLocaleString(), icon: MessageCircle, color: "#60a5fa" },
+            { label: "保存", value: totalSaves.toLocaleString(), icon: Bookmark, color: "#a78bfa" },
+            { label: "シェア", value: totalShares.toLocaleString(), icon: Share2, color: "#fb923c" },
+            { label: "平均EG率", value: `${avgEgRate.toFixed(1)}%`, icon: TrendingUp, color: "#f3a522" },
+          ].map((item) => (
+            <Card key={item.label}>
+              <CardContent className="p-3 flex items-center gap-2">
+                <item.icon className="h-4 w-4 shrink-0" style={{ color: item.color }} />
+                <div className="min-w-0">
+                  <p className="text-[10px] text-muted-foreground">{item.label}</p>
+                  <p className="text-sm font-bold truncate">{item.value}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* エラー表示 */}
       {error && (
@@ -282,7 +289,7 @@ export default function PostInsight() {
           <div className="flex items-center justify-center h-32">
             <div className="text-center text-muted-foreground">
               <p>アカウントを選択してください</p>
-              <p className="text-sm mt-1">ヘッダーからInstagramアカウントを選択してください</p>
+              <p className="text-sm mt-1">サイドバーからInstagramアカウントを選択してください</p>
             </div>
           </div>
         ) : loading && !posts.length ? (
