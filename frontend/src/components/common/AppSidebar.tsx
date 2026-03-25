@@ -107,28 +107,28 @@ export function AppSidebar() {
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  className="w-full justify-start h-auto py-2 px-3"
+                  className="w-full justify-start h-auto py-2 px-3 overflow-hidden"
                   disabled={loading && !selectedAccount}
                 >
                   {loading && !selectedAccount ? (
                     <><Loader2 className="w-4 h-4 animate-spin mr-2" /><span className="text-sm">読み込み中...</span></>
                   ) : selectedAccount ? (
-                    <div className="flex items-center gap-2 w-full min-w-0">
+                    <div className="flex items-center gap-2 w-full min-w-0 overflow-hidden">
                       <Avatar className="w-6 h-6 shrink-0">
                         <AvatarImage src={getAccountSummary(selectedAccount).avatar} />
                         <AvatarFallback className="text-[10px]">
                           {selectedAccount.username.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="text-sm truncate">@{selectedAccount.username}</span>
-                      <ChevronDown className="w-3 h-3 shrink-0 ml-auto text-muted-foreground" />
+                      <span className="text-xs truncate flex-1 min-w-0">@{selectedAccount.username}</span>
+                      <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" />
                     </div>
                   ) : (
                     <span className="text-sm text-muted-foreground">アカウント未選択</span>
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-72 p-2" align="start">
+              <PopoverContent className="w-64 p-2" align="start" side="bottom">
                 <ScrollArea className="max-h-[60vh]">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between px-2 py-1">
