@@ -6,11 +6,9 @@ import { Separator } from "@/components/ui/separator";
 import { usePathname } from "next/navigation";
 
 const pageTitles: Record<string, string> = {
-  "/": "ダッシュボード",
+  "/": "投稿分析",
   "/post_insight": "投稿分析",
   "/setup": "アカウント設定",
-  "/yearly-insight": "年間分析",
-  "/monthly-insight": "月間分析",
 };
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {

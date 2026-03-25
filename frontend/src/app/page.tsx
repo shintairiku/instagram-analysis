@@ -1,5 +1,5 @@
-import Overview from "@/feature/overview";
+import PostInsight from "@/feature/post_insight";
 
 export default function Home() {
-  return <Overview />;
+  return <PostInsight />;
 }

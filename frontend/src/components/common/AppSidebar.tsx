@@ -18,7 +18,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  LayoutDashboard,
   FileBarChart,
   Settings,
   Download,
@@ -40,8 +39,7 @@ import {
 } from "@/components/ui/popover";
 
 const navItems = [
-  { title: "ダッシュボード", href: "/", icon: LayoutDashboard },
-  { title: "投稿分析", href: "/post_insight", icon: FileBarChart },
+  { title: "投稿分析", href: "/", icon: FileBarChart },
   { title: "設定", href: "/setup", icon: Settings },
 ];
 
