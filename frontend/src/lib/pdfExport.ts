@@ -29,6 +29,16 @@ const PAGE = {
 const CONTENT_WIDTH = PAGE.width - PAGE.margin.left - PAGE.margin.right;
 const HEADER_HEIGHT = 12;
 const FOOTER_HEIGHT = 10;
+const STORAGE_KEYS = {
+  SELECTED_ACCOUNT: 'instagram_analysis_selected_account',
+  ACCOUNTS_CACHE: 'instagram_analysis_accounts_cache',
+} as const;
+
+type PdfAccountInfo = {
+  coverName: string;
+  coverIdLine: string;
+  fileNameBase: string;
+};
 
 // ====================================================================
 // Font Loading (Lazy - caches base64 data, registers per doc instance)
@@ -87,6 +97,12 @@ function formatDate(date: Date): string {
 function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined) return '---';
   return num.toLocaleString();
+}
+
+function ensureHonorific(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return 'Instagram Account 様';
+  return `${trimmed.replace(/\s*様$/, '')} 様`;
 }
 
 // ====================================================================
@@ -148,6 +164,7 @@ function drawCoverPage(
   doc: jsPDF,
   reportType: string,
   accountName: string,
+  accountIdLine: string,
   subtitle: string,
   meta?: { dateRange?: string; totalPosts?: number }
 ): void {
@@ -174,18 +191,27 @@ function drawCoverPage(
 
   // Account info section
   let yPos = 105;
+  const centeredTextWidth = CONTENT_WIDTH - 20;
+  const accountNameLines = doc.splitTextToSize(accountName, centeredTextWidth);
+  const accountIdLines = doc.splitTextToSize(accountIdLine, centeredTextWidth);
+  const subtitleLines = doc.splitTextToSize(subtitle, centeredTextWidth);
 
   doc.setFont('NotoSansJP', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(...COLORS.dark);
-  doc.text(accountName, PAGE.width / 2, yPos, { align: 'center' });
-  yPos += 12;
+  doc.text(accountNameLines, PAGE.width / 2, yPos, { align: 'center' });
+  yPos += accountNameLines.length * 7;
 
   doc.setFont('NotoSansJP', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(...COLORS.medium);
+  doc.text(accountIdLines, PAGE.width / 2, yPos, { align: 'center' });
+  yPos += accountIdLines.length * 5 + 5;
+
   doc.setFontSize(11);
   doc.setTextColor(...COLORS.medium);
-  doc.text(subtitle, PAGE.width / 2, yPos, { align: 'center' });
-  yPos += 20;
+  doc.text(subtitleLines, PAGE.width / 2, yPos, { align: 'center' });
+  yPos += subtitleLines.length * 6 + 8;
 
   // Meta info
   if (meta?.dateRange) {
@@ -425,6 +451,7 @@ function extractTableDataFromDOM(container: HTMLElement): {
 function extractPostInsightDataFromDOM(container: HTMLElement): {
   headers: string[];
   rows: string[][];
+  rowLinks: string[];
 } | null {
   const table = container.querySelector('table');
   if (!table) return null;
@@ -437,10 +464,21 @@ function extractPostInsightDataFromDOM(container: HTMLElement): {
 
   // Extract metric labels and values per post
   const metrics: { label: string; values: string[] }[] = [];
+  let postLinks: string[] = [];
   trs.forEach((tr) => {
     const cells = tr.querySelectorAll('td, th');
     if (cells.length < 2) return;
     const label = cells[0].textContent?.trim() || '';
+
+     if (label === '投稿日' && postLinks.length === 0) {
+      postLinks = Array.from(cells)
+        .slice(1)
+        .map((cell) => {
+          const anchor = cell.querySelector('a[href]');
+          return anchor instanceof HTMLAnchorElement ? anchor.href : '';
+        });
+    }
+
     // Skip thumbnail row
     if (label === 'サムネイル') return;
     const values: string[] = [];
@@ -454,35 +492,79 @@ function extractPostInsightDataFromDOM(container: HTMLElement): {
 
   // Transpose: convert from row=metric,col=post to row=post,col=metric
   const numPosts = metrics[0].values.length;
-  const headers = ['No.', ...metrics.map((m) => m.label)];
+  const headers = ['No.', '投稿リンク', ...metrics.map((m) => m.label)];
   const rows: string[][] = [];
+  const rowLinks: string[] = [];
 
   for (let i = 0; i < numPosts; i++) {
-    const row = [String(i + 1)];
+    const row = [String(i + 1), '開く'];
     metrics.forEach((m) => {
       row.push(m.values[i] || '');
     });
     rows.push(row);
+    rowLinks.push(postLinks[i] || '');
   }
 
-  return { headers, rows };
+  return { headers, rows, rowLinks };
 }
 
 // ====================================================================
 // Account Name Detection
 // ====================================================================
-function detectAccountName(): string {
-  // Try to read from header
+function detectAccountInfo(): PdfAccountInfo {
+  if (typeof window !== 'undefined') {
+    try {
+      const selectedInstagramUserId = localStorage.getItem(STORAGE_KEYS.SELECTED_ACCOUNT);
+      const accountsCache = localStorage.getItem(STORAGE_KEYS.ACCOUNTS_CACHE);
+
+      if (accountsCache) {
+        const accounts = JSON.parse(accountsCache) as Array<{
+          instagram_user_id?: string;
+          username?: string;
+          account_name?: string;
+          is_active?: boolean;
+        }>;
+
+        const selectedAccount =
+          accounts.find((account) => account.instagram_user_id === selectedInstagramUserId) ??
+          accounts.find((account) => account.is_active) ??
+          accounts[0];
+
+        if (selectedAccount?.username) {
+          const displayName = selectedAccount.account_name?.trim() || selectedAccount.username;
+          const username = selectedAccount.username.replace(/^@/, '');
+          const instagramUserId = selectedAccount.instagram_user_id?.trim();
+
+          return {
+            coverName: ensureHonorific(displayName),
+            coverIdLine: instagramUserId
+              ? `Instagram ID: @${username} / ${instagramUserId}`
+              : `Instagram ID: @${username}`,
+            fileNameBase: username,
+          };
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to detect account info for PDF cover:', error);
+    }
+  }
+
   const headerBtn = document.querySelector('header button span.font-medium');
-  if (headerBtn?.textContent?.startsWith('@')) {
-    return headerBtn.textContent;
+  const usernameFromDom = headerBtn?.textContent?.trim().replace(/^@/, '');
+
+  if (usernameFromDom) {
+    return {
+      coverName: ensureHonorific(usernameFromDom),
+      coverIdLine: `Instagram ID: @${usernameFromDom}`,
+      fileNameBase: usernameFromDom,
+    };
   }
-  // Try from popover trigger
-  const avatarSpan = document.querySelector('header .font-medium');
-  if (avatarSpan?.textContent?.startsWith('@')) {
-    return avatarSpan.textContent;
-  }
-  return 'Instagram Account';
+
+  return {
+    coverName: 'Instagram Account 様',
+    coverIdLine: 'Instagram ID: -',
+    fileNameBase: 'instagram-account',
+  };
 }
 
 // ====================================================================
@@ -491,7 +573,7 @@ function detectAccountName(): string {
 
 async function buildPostInsightReport(doc: jsPDF, container: HTMLElement): Promise<void> {
   const reportTitle = 'Instagram 投稿分析レポート';
-  const accountName = detectAccountName();
+  const accountInfo = detectAccountInfo();
 
   // Extract date range and post count from DOM
   const metaElements = container.closest('.space-y-6')?.querySelectorAll('.text-xs');
@@ -515,10 +597,17 @@ async function buildPostInsightReport(doc: jsPDF, container: HTMLElement): Promi
   const numPosts = tableData?.rows.length ?? 0;
 
   // ---- Cover Page ----
-  drawCoverPage(doc, '投稿分析 (Post Insight)', accountName, postInfo || '投稿パフォーマンスの詳細レポート', {
+  drawCoverPage(
+    doc,
+    '投稿分析 (Post Insight)',
+    accountInfo.coverName,
+    accountInfo.coverIdLine,
+    postInfo || '投稿パフォーマンスの詳細レポート',
+    {
     dateRange: dateRange || undefined,
     totalPosts: numPosts || undefined,
-  });
+    }
+  );
 
   // ---- Summary Page ----
   addPageWithHeader(doc, reportTitle);
@@ -568,6 +657,8 @@ async function buildPostInsightReport(doc: jsPDF, container: HTMLElement): Promi
     tableData.headers.forEach((h, i) => {
       if (i === 0) {
         columnStyles[i] = { halign: 'center' };
+      } else if (h === '投稿リンク') {
+        columnStyles[i] = { halign: 'center' };
       } else if (h === '投稿日' || h === 'タイプ') {
         columnStyles[i] = { halign: 'center' };
       } else {
@@ -575,17 +666,33 @@ async function buildPostInsightReport(doc: jsPDF, container: HTMLElement): Promi
       }
     });
 
+    const linkColumnIndex = tableData.headers.indexOf('投稿リンク');
+
     autoTable(doc, {
       ...getAutoTableDefaults(),
       startY: tableStartY + 7,
       head: [tableData.headers],
       body: tableData.rows,
       columnStyles,
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === linkColumnIndex) {
+          data.cell.styles.textColor = [41, 98, 255];
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.halign = 'center';
+        }
+      },
       didDrawPage: (data) => {
         // Draw header on new pages created by autoTable
         if (data.pageNumber > 1) {
           drawPageHeader(doc, reportTitle);
         }
+      },
+      didDrawCell: (data) => {
+        if (data.section !== 'body' || data.column.index !== linkColumnIndex) return;
+        const url = tableData.rowLinks[data.row.index];
+        if (!url) return;
+
+        doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url });
       },
     });
   }
@@ -607,16 +714,23 @@ async function buildPostInsightReport(doc: jsPDF, container: HTMLElement): Promi
 
 async function buildYearlyInsightReport(doc: jsPDF, container: HTMLElement): Promise<void> {
   const reportTitle = 'Instagram 年間分析レポート';
-  const accountName = detectAccountName();
+  const accountInfo = detectAccountInfo();
 
   // Get selected year
   const yearSelect = container.querySelector('[data-value]');
   const selectedYear = yearSelect?.textContent || new Date().getFullYear().toString();
 
   // ---- Cover Page ----
-  drawCoverPage(doc, '年間分析 (Yearly Insight)', accountName, `${selectedYear}年 月別パフォーマンス推移`, {
-    dateRange: `${selectedYear}年1月 ～ ${selectedYear}年12月`,
-  });
+  drawCoverPage(
+    doc,
+    '年間分析 (Yearly Insight)',
+    accountInfo.coverName,
+    accountInfo.coverIdLine,
+    `${selectedYear}年 月別パフォーマンス推移`,
+    {
+      dateRange: `${selectedYear}年1月 ～ ${selectedYear}年12月`,
+    }
+  );
 
   // ---- Data Table ----
   const tableData = extractTableDataFromDOM(container);
@@ -661,16 +775,23 @@ async function buildYearlyInsightReport(doc: jsPDF, container: HTMLElement): Pro
 
 async function buildMonthlyInsightReport(doc: jsPDF, container: HTMLElement): Promise<void> {
   const reportTitle = 'Instagram 月間分析レポート';
-  const accountName = detectAccountName();
+  const accountInfo = detectAccountInfo();
 
   // Get selected month
   const monthSelect = container.querySelector('button[role="combobox"]');
   const selectedMonth = monthSelect?.textContent || '';
 
   // ---- Cover Page ----
-  drawCoverPage(doc, '月間分析 (Monthly Insight)', accountName, `${selectedMonth} 日別パフォーマンス推移`, {
-    dateRange: selectedMonth || undefined,
-  });
+  drawCoverPage(
+    doc,
+    '月間分析 (Monthly Insight)',
+    accountInfo.coverName,
+    accountInfo.coverIdLine,
+    `${selectedMonth} 日別パフォーマンス推移`,
+    {
+      dateRange: selectedMonth || undefined,
+    }
+  );
 
   // ---- Data Table ----
   const tableData = extractTableDataFromDOM(container);
@@ -778,8 +899,8 @@ export const exportToPDF = async (): Promise<boolean> => {
 
     // Save
     const currentDate = formatDate(new Date()).replace(/\//g, '-');
-    const accountName = detectAccountName().replace('@', '');
-    const fileName = `instagram-${pageType}-report-${accountName}-${currentDate}.pdf`;
+    const accountInfo = detectAccountInfo();
+    const fileName = `instagram-${pageType}-report-${accountInfo.fileNameBase}-${currentDate}.pdf`;
     doc.save(fileName);
 
     console.log(`PDF export completed: ${fileName}`);
