@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { InstagramAccount, AccountContextValue, AccountSummary, TokenWarningLevel } from '../types/account';
 import { accountApi } from '../services/accountApi';
 
@@ -303,8 +303,8 @@ export function AccountProvider({ children, defaultAccountId }: AccountProviderP
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 初回のみ実行（依存関係を意図的に無視）
 
-  // Context値
-  const contextValue: AccountContextValue = {
+  // Context値（useMemoで不要な再レンダリングを防止）
+  const contextValue: AccountContextValue = useMemo(() => ({
     selectedAccount,
     accounts,
     loading,
@@ -315,7 +315,7 @@ export function AccountProvider({ children, defaultAccountId }: AccountProviderP
     getAccountById,
     getValidAccounts,
     getAccountSummary,
-  };
+  }), [selectedAccount, accounts, loading, error, selectAccount, refreshAccounts, clearError, getAccountById, getValidAccounts, getAccountSummary]);
 
   return (
     <AccountContext.Provider value={contextValue}>

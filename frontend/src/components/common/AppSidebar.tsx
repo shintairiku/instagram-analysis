@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -73,14 +73,15 @@ export function AppSidebar() {
     setAccountSearch("");
   };
 
-  const normalizedQuery = accountSearch.trim().toLowerCase().normalize("NFKC");
-  const filteredAccounts = normalizedQuery
-    ? accounts.filter((a) => {
-        const u = a.username.toLowerCase().normalize("NFKC");
-        const n = (a.account_name ?? "").toLowerCase().normalize("NFKC");
-        return u.includes(normalizedQuery) || `@${u}`.includes(normalizedQuery) || n.includes(normalizedQuery);
-      })
-    : accounts;
+  const filteredAccounts = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase().normalize("NFKC");
+    if (!q) return accounts;
+    return accounts.filter((a) => {
+      const u = a.username.toLowerCase().normalize("NFKC");
+      const n = (a.account_name ?? "").toLowerCase().normalize("NFKC");
+      return u.includes(q) || `@${u}`.includes(q) || n.includes(q);
+    });
+  }, [accountSearch, accounts]);
 
   return (
     <Sidebar>
