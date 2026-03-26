@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const JST_TIME_ZONE = "Asia/Tokyo";
 
@@ -45,6 +46,8 @@ function formatJstMdHm(iso: string): string {
 }
 
 export default function PostInsight() {
+  const isMobile = useIsMobile();
+
   // デフォルト期間：日本時間の「本日」〜「1ヶ月前」
   const getDefaultJstRange = useCallback((): DateRange => {
     const now = new Date();
@@ -159,10 +162,10 @@ export default function PostInsight() {
     : 0;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] p-4 md:p-6 gap-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4 md:p-6">
       {/* Filters - fixed at top */}
-      <div className="flex flex-col gap-3 shrink-0">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-w-0 shrink-0 flex-col gap-3">
+        <div className="flex min-w-0 flex-wrap items-start gap-2 md:items-center">
           <Button
             variant="secondary"
             size="sm"
@@ -196,15 +199,33 @@ export default function PostInsight() {
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar initialFocus mode="range" defaultMonth={date?.from} selected={date} onSelect={setDate} numberOfMonths={2} />
+            <PopoverContent
+              className="w-auto max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+              align="start"
+            >
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={date?.from}
+                selected={date}
+                onSelect={setDate}
+                numberOfMonths={isMobile ? 1 : 2}
+              />
             </PopoverContent>
           </Popover>
 
-          <Tabs value={selectedType} onValueChange={(v) => setSelectedType(v as ContentType)} className="w-auto">
-            <TabsList className="h-8">
+          <Tabs
+            value={selectedType}
+            onValueChange={(v) => setSelectedType(v as ContentType)}
+            className="min-w-0 flex-1 basis-full sm:basis-auto"
+          >
+            <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
               {contentTypes.map((type) => (
-                <TabsTrigger key={type} value={type} className="text-xs px-2 py-1">
+                <TabsTrigger
+                  key={type}
+                  value={type}
+                  className="min-w-[5.5rem] flex-none text-xs"
+                >
                   {type === "CAROUSEL_ALBUM" ? "Carousel" : type}
                 </TabsTrigger>
               ))}
@@ -212,7 +233,7 @@ export default function PostInsight() {
           </Tabs>
 
           {apiData && (
-            <span className="text-xs text-muted-foreground ml-auto">
+            <span className="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto sm:text-right">
               {filteredData.length}件 / 全{apiData.meta.total_posts}件
               {selectedAccount?.last_synced_at && ` | 更新: ${formatJstMdHm(selectedAccount.last_synced_at)}`}
             </span>
@@ -222,7 +243,7 @@ export default function PostInsight() {
 
       {/* Summary KPI Cards - fixed */}
       {filteredData.length > 0 && (
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 shrink-0">
+        <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           {[
             { label: "リーチ", value: totalReach.toLocaleString(), icon: Eye, color: "#4ade80" },
             { label: "いいね", value: totalLikes.toLocaleString(), icon: Heart, color: "#f472b6" },
@@ -248,7 +269,7 @@ export default function PostInsight() {
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="flex justify-between items-center">
+          <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>{error}</span>
             <div className="flex gap-2">
               <Button 
@@ -274,7 +295,7 @@ export default function PostInsight() {
       {refreshError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="flex justify-between items-center">
+          <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>{refreshError}</span>
             <Button variant="outline" size="sm" onClick={() => setRefreshError(null)}>
               閉じる
@@ -284,7 +305,10 @@ export default function PostInsight() {
       )}
 
       {/* データ表示 - scrollable area */}
-      <div id="post-analysis-content" className="flex-1 min-h-0 overflow-y-auto space-y-6">
+      <div
+        id="post-analysis-content"
+        className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden pr-1 space-y-6"
+      >
         {!selectedAccount ? (
           <div className="flex items-center justify-center h-32">
             <div className="text-center text-muted-foreground">
@@ -296,7 +320,7 @@ export default function PostInsight() {
           <div className="flex items-center justify-center h-32">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
-              投稿データを読み込み中...
+              投稿データを読み込み中…
             </div>
           </div>
         ) : filteredData.length === 0 ? (

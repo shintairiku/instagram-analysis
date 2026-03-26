@@ -145,15 +145,15 @@ export function AccountTable({ accounts, loading, onRefresh }: AccountTableProps
         ) : (
           <>
             {/* 統計サマリー */}
-            <div className="flex gap-4 mb-4 text-sm text-muted-foreground">
+            <div className="mb-4 flex flex-wrap gap-4 text-sm text-muted-foreground">
               <span>📈 取得済み: <strong>{accounts.length}</strong>件</span>
               <span>✅ アクティブ: <strong>{accounts.filter(a => a.is_active).length}</strong>件</span>
               <span>⚠️ 要注意: <strong>{accounts.filter(a => a.token_status === 'warning').length}</strong>件</span>
             </div>
 
             {/* テーブル */}
-            <div className="rounded-md border">
-              <Table>
+            <div className="overflow-hidden rounded-md border">
+              <Table className="min-w-[940px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[300px]">アカウント</TableHead>
@@ -178,7 +178,7 @@ export function AccountTable({ accounts, loading, onRefresh }: AccountTableProps
                   {sortedAccounts.map((account) => (
                     <TableRow key={account.id}>
                       <TableCell>
-                        <div className="flex items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
                           <Avatar className="h-10 w-10">
                             <AvatarImage 
                               src={account.profile_picture_url} 
@@ -188,14 +188,14 @@ export function AccountTable({ accounts, loading, onRefresh }: AccountTableProps
                               {account.username.slice(0, 2).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <div>
+                          <div className="min-w-0">
                             <div className="font-medium">@{account.username}</div>
                             {account.account_name && (
-                              <div className="text-sm text-muted-foreground">
+                              <div className="truncate text-sm text-muted-foreground">
                                 {account.account_name}
                               </div>
                             )}
-                            <div className="text-xs text-muted-foreground font-mono">
+                            <div className="truncate font-mono text-xs text-muted-foreground">
                               ID: {account.instagram_user_id}
                             </div>
                           </div>
@@ -218,12 +218,15 @@ export function AccountTable({ accounts, loading, onRefresh }: AccountTableProps
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => window.open(`https://www.instagram.com/${account.username}`, '_blank')}
-                        >
-                          <ExternalLink className="h-4 w-4" />
+                        <Button variant="ghost" size="sm" asChild>
+                          <a
+                            href={`https://www.instagram.com/${account.username}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label={`@${account.username} をInstagramで開く`}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
                         </Button>
                       </TableCell>
                     </TableRow>

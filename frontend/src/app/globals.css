@@ -54,6 +54,10 @@
   * {
     @apply border-slate-200;
   }
+  html,
+  body {
+    overflow-x: hidden;
+  }
   body {
     background: rgb(247 249 252);
     color: rgb(64 71 73);

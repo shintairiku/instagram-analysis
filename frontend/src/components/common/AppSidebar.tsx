@@ -31,12 +31,12 @@ import {
 import { exportToPDF } from "@/lib/pdfExport";
 import { useAccount } from "@/hooks/useAccount";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const navItems = [
   { title: "投稿分析", href: "/", icon: FileBarChart },
@@ -45,6 +45,7 @@ const navItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const isMobile = useIsMobile();
   const {
     selectedAccount,
     accounts,
@@ -127,9 +128,13 @@ export function AppSidebar() {
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-64 p-2" align="start" side="bottom">
-                <ScrollArea className="max-h-[60vh]">
-                  <div className="space-y-1">
+              <PopoverContent
+                className="w-72 max-w-[calc(100vw-2rem)] overflow-hidden p-2"
+                align="start"
+                side="bottom"
+              >
+                <div className="max-h-[60vh] overflow-y-auto overscroll-contain pr-1">
+                  <div className="space-y-1 min-w-0">
                     <div className="flex items-center justify-between px-2 py-1">
                       <span className="text-xs font-medium text-muted-foreground">アカウントを選択</span>
                       <Button variant="ghost" size="sm" onClick={refreshAccounts} disabled={loading} className="h-5 w-5 p-0">
@@ -142,9 +147,9 @@ export function AppSidebar() {
                         <Input
                           value={accountSearch}
                           onChange={(e) => setAccountSearch(e.target.value)}
-                          placeholder="検索..."
+                          placeholder="検索…"
                           className="h-7 pl-7 pr-7 text-xs"
-                          autoFocus
+                          autoFocus={!isMobile}
                         />
                         {accountSearch && (
                           <Button variant="ghost" size="sm" className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2 p-0" onClick={() => setAccountSearch("")}>
@@ -176,7 +181,7 @@ export function AppSidebar() {
                       </Button>
                     ))}
                   </div>
-                </ScrollArea>
+                </div>
               </PopoverContent>
             </Popover>
           </SidebarGroupContent>

@@ -165,7 +165,7 @@ export default function Setup() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden p-4 md:p-6">
       {/* ヘッダー */}
       <div className="border-b pb-4">
         <h1 className="text-3xl font-bold">Instagram アカウントセットアップ</h1>
@@ -175,9 +175,9 @@ export default function Setup() {
       </div>
 
       {/* メインコンテンツ - 2カラムレイアウト */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* 左カラム: セットアップフォーム */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <SetupForm
             onSubmit={handleFormSubmit}
             status={status}
@@ -186,7 +186,7 @@ export default function Setup() {
         </div>
 
         {/* 右カラム: アカウント一覧テーブル */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <AccountTable
             accounts={accounts}
             loading={loading}

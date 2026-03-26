@@ -13,7 +13,10 @@ export default function MonthlyInsight() {
   const [selectedMonth, setSelectedMonth] = useState("2024-12");
 
   return (
-    <div id="monthly-analysis-content" className="space-y-6 p-6">
+    <div
+      id="monthly-analysis-content"
+      className="h-full min-h-0 overflow-y-auto overflow-x-hidden p-4 md:p-6"
+    >
       {/* ヘッダー */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -38,14 +41,14 @@ export default function MonthlyInsight() {
       </div>
 
       {/* メインコンテンツ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* 左側: データテーブル */}
-        <div className="lg:col-span-1">
+        <div className="min-w-0 lg:col-span-1">
           <DailyDataTable data={monthlyAnalyticsData} />
         </div>
 
         {/* 右側: グラフ縦並び */}
-        <div className="lg:col-span-1 space-y-4">
+        <div className="min-w-0 space-y-4 lg:col-span-1">
           <NewFollowersChart data={monthlyAnalyticsData} />
           <ImpressionsReachChart data={monthlyAnalyticsData} />
           <ProfileViewsChart data={monthlyAnalyticsData} />

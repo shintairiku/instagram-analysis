@@ -12,7 +12,10 @@ export default function YearlyInsight() {
 
 
   return (
-    <div id="yearly-analysis-content" className="space-y-6 p-6">
+    <div
+      id="yearly-analysis-content"
+      className="h-full min-h-0 overflow-y-auto overflow-x-hidden p-4 md:p-6"
+    >
       {/* ヘッダー */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -37,10 +40,12 @@ export default function YearlyInsight() {
 
 
       {/* データテーブル */}
-      <DataTable data={yearlyAnalyticsData} />
+      <div className="mt-6 min-w-0">
+        <DataTable data={yearlyAnalyticsData} />
+      </div>
 
       {/* グラフセクション */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
         {/* <FollowerChart data={yearlyAnalyticsData} /> */}
         <EngagementChart data={yearlyAnalyticsData} />
       </div>
