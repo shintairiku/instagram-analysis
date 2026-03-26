@@ -159,9 +159,9 @@ export default function PostInsight() {
     : 0;
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      {/* Filters - responsive layout */}
-      <div className="flex flex-col gap-3">
+    <div className="flex flex-col h-[calc(100vh-3rem)] p-4 md:p-6 gap-3">
+      {/* Filters - fixed at top */}
+      <div className="flex flex-col gap-3 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
@@ -220,9 +220,9 @@ export default function PostInsight() {
         </div>
       </div>
 
-      {/* Summary KPI Cards */}
+      {/* Summary KPI Cards - fixed */}
       {filteredData.length > 0 && (
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 shrink-0">
           {[
             { label: "リーチ", value: totalReach.toLocaleString(), icon: Eye, color: "#4ade80" },
             { label: "いいね", value: totalLikes.toLocaleString(), icon: Heart, color: "#f472b6" },
@@ -283,8 +283,8 @@ export default function PostInsight() {
         </Alert>
       )}
 
-      {/* データ表示 */}
-      <div id="post-analysis-content" className="space-y-6">
+      {/* データ表示 - scrollable area */}
+      <div id="post-analysis-content" className="flex-1 min-h-0 overflow-y-auto space-y-6">
         {!selectedAccount ? (
           <div className="flex items-center justify-center h-32">
             <div className="text-center text-muted-foreground">
